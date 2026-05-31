@@ -284,6 +284,7 @@ export const api = {
       cash: data.cashAmount || 0,
       vodafoneCash: data.vodafoneCashAmount || 0,
       check: data.checkAmount || 0,
+      bankTransfer: data.bankTransferAmount || 0,
     };
   },
 
