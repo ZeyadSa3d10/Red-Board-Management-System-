@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="BuildingMaterials.API/BuildingMaterials.API.csproj" />
+  <Project Path="BuildingMaterials.Application/BuildingMaterials.Application.csproj" />
+  <Project Path="BuildingMaterials.Domain/BuildingMaterials.Domain.csproj" />
+  <Project Path="BuildingMaterials.Infrastructure/BuildingMaterials.Infrastructure.csproj" />
+  <Project Path="BuildingMaterials.Tests/BuildingMaterials.Tests.csproj" />
+</Solution>

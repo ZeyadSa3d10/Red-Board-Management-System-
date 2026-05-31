@@ -1,0 +1,6 @@
+@BuildingMaterials.API_HostAddress = http://localhost:5193
+
+GET {{BuildingMaterials.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

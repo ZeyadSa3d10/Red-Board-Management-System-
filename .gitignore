@@ -1,0 +1,24 @@
+# ========== .NET BACKEND ==========
+bin/
+obj/
+*.user
+*.suo
+*.sln.docstates
+*.nupkg
+logs/
+.vs/
+**/appsettings.Development.json
+**/appsettings.Production.json
+
+# ========== REACT / VITE FRONTEND ==========
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+.eslintcache
+
+# ========== OS ==========
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
