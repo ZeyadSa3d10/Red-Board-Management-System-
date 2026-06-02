@@ -5,6 +5,8 @@ using BuildingMaterials.Application.Services.Interfaces;
 using BuildingMaterials.Domain.Entities;
 using BuildingMaterials.Domain.Exceptions;
 using BuildingMaterials.Infrastructure.Data;
+using BuildingMaterials.Application.Extensions;
+using BuildingMaterials.Infrastructure.Extensions;
 using Microsoft.EntityFrameworkCore;
 
 namespace BuildingMaterials.Application.Services;
@@ -52,40 +54,19 @@ public class ExpenseService : IExpenseService
 
     public async Task<PagedResult<ExpenseResponseDto>> GetAllAsync(ExpenseFilterDto? filter = null)
     {
+        if (filter == null)
+            filter = new ExpenseFilterDto();
+
         var query = _context.Set<BranchExpense>()
             .Include(x => x.Branch)
             .Include(x => x.CreatedBy)
-            .AsQueryable();
+            .AsQueryable()
+            .ApplySearch(filter.Search, e => e.Description)
+            .ApplyWhereIf(filter.BranchId.HasValue, e => e.BranchId == filter.BranchId!.Value)
+            .ApplyWhereIf(filter.DateFrom.HasValue, e => e.ExpenseDate >= filter.DateFrom!.Value)
+            .ApplyWhereIf(filter.DateTo.HasValue, e => e.ExpenseDate <= filter.DateTo!.Value);
 
-        if (filter != null)
-        {
-            if (!string.IsNullOrWhiteSpace(filter.Search))
-            {
-                var q = filter.Search.ToLower();
-                query = query.Where(x => x.Description.ToLower().Contains(q));
-            }
-            if (filter.BranchId.HasValue)
-                query = query.Where(x => x.BranchId == filter.BranchId.Value);
-            if (filter.DateFrom.HasValue)
-                query = query.Where(x => x.ExpenseDate >= filter.DateFrom.Value);
-            if (filter.DateTo.HasValue)
-                query = query.Where(x => x.ExpenseDate <= filter.DateTo.Value);
-        }
-
-        var totalCount = await query.CountAsync();
-        var items = await query
-            .OrderByDescending(x => x.ExpenseDate)
-            .Skip(((filter?.PageNumber ?? 1) - 1) * (filter?.PageSize ?? 20))
-            .Take(filter?.PageSize ?? 20)
-            .ToListAsync();
-
-        return new PagedResult<ExpenseResponseDto>
-        {
-            Items = _mapper.Map<List<ExpenseResponseDto>>(items),
-            TotalCount = totalCount,
-            PageNumber = filter?.PageNumber ?? 1,
-            PageSize = filter?.PageSize ?? 20
-        };
+        return await query.ToPagedResultAsync<BranchExpense, ExpenseResponseDto>(filter, _mapper);
     }
 
     public async Task DeleteAsync(int id)

@@ -2,9 +2,14 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 const useFilters = (defaults = {}, options = {}) => {
-  const { syncUrl = true } = options;
+  const { syncUrl = true, debounceMs = 0, onFilterChange } = options;
   const [searchParams, setSearchParams] = useSearchParams();
   const defaultsRef = useRef(defaults);
+  const onFilterChangeRef = useRef(onFilterChange);
+  const debounceTimerRef = useRef(null);
+  const initialLoadRef = useRef(true);
+
+  onFilterChangeRef.current = onFilterChange;
 
   const initFilters = useCallback(() => {
     if (!syncUrl) return { ...defaultsRef.current };
@@ -40,6 +45,8 @@ const useFilters = (defaults = {}, options = {}) => {
     }).length;
   }, [filters]);
 
+  const debouncedFilters = useMemo(() => filters, [filters]);
+
   useEffect(() => {
     if (syncUrl) {
       const params = new URLSearchParams();
@@ -52,6 +59,28 @@ const useFilters = (defaults = {}, options = {}) => {
       setSearchParams(params, { replace: true });
     }
   }, [filters, syncUrl, setSearchParams]);
+
+  useEffect(() => {
+    if (initialLoadRef.current) {
+      initialLoadRef.current = false;
+      return;
+    }
+
+    if (onFilterChangeRef.current) {
+      if (debounceMs > 0) {
+        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = setTimeout(() => {
+          onFilterChangeRef.current(filters);
+        }, debounceMs);
+      } else {
+        onFilterChangeRef.current(filters);
+      }
+    }
+
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    };
+  }, [filters, debounceMs]);
 
   return { filters, setFilter, setFilters, resetFilters, activeCount };
 };

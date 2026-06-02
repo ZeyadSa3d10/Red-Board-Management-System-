@@ -1,4 +1,7 @@
+using System.Security.Claims;
 using BuildingMaterials.Application.DTOs.Invoice;
+using BuildingMaterials.Application.DTOs.Report;
+using BuildingMaterials.Application.Extensions;
 using BuildingMaterials.Application.Services.Interfaces;
 using ClosedXML.Excel;
 using Microsoft.AspNetCore.Authorization;
@@ -114,7 +117,9 @@ public class ReportController : ControllerBase
     [Authorize(Roles = "Owner,Accountant")]
     public async Task<IActionResult> GetDashboard([FromQuery] DateTime? dateFrom = null, [FromQuery] DateTime? dateTo = null)
     {
+        var role = User.FindFirstValue(ClaimTypes.Role);
         var stats = await _reportService.GetOwnerDashboardStatsAsync(dateFrom, dateTo);
+        DtoSanitizer.Sanitize(stats, role);
         return Ok(stats);
     }
 
@@ -154,7 +159,9 @@ public class ReportController : ControllerBase
     [Authorize(Roles = "Owner,Accountant")]
     public async Task<IActionResult> GetPnL([FromQuery] DateTime? dateFrom = null, [FromQuery] DateTime? dateTo = null, [FromQuery] int? branchId = null)
     {
+        var role = User.FindFirstValue(ClaimTypes.Role);
         var result = await _reportService.GetPnLAsync(dateFrom, dateTo, branchId);
+        DtoSanitizer.Sanitize(result, role);
         return Ok(result);
     }
 
@@ -170,7 +177,9 @@ public class ReportController : ControllerBase
     [Authorize(Roles = "Owner,Accountant")]
     public async Task<IActionResult> GetBranchComparison([FromQuery] DateTime? dateFrom = null, [FromQuery] DateTime? dateTo = null)
     {
-        var result = await _reportService.GetBranchComparisonAsync(dateFrom, dateTo);
+        var role = User.FindFirstValue(ClaimTypes.Role);
+        var result = (await _reportService.GetBranchComparisonAsync(dateFrom, dateTo)).ToList();
+        DtoSanitizer.SanitizeList(result, role);
         return Ok(result);
     }
 
@@ -178,7 +187,9 @@ public class ReportController : ControllerBase
     [Authorize(Roles = "Owner,Accountant")]
     public async Task<IActionResult> GetTopProductsFiltered([FromQuery] DateTime? dateFrom = null, [FromQuery] DateTime? dateTo = null, [FromQuery] int? branchId = null, [FromQuery] int limit = 10, [FromQuery] string sortBy = "revenue")
     {
-        var result = await _reportService.GetTopProductsFilteredAsync(dateFrom, dateTo, branchId, limit, sortBy);
+        var role = User.FindFirstValue(ClaimTypes.Role);
+        var result = (await _reportService.GetTopProductsFilteredAsync(dateFrom, dateTo, branchId, limit, sortBy)).ToList();
+        DtoSanitizer.SanitizeList(result, role);
         return Ok(result);
     }
 
@@ -214,11 +225,39 @@ public class ReportController : ControllerBase
         return Ok(result);
     }
 
+    [HttpGet("sales-stats")]
+    [Authorize(Roles = "Owner,Accountant,Staff")]
+    public async Task<IActionResult> GetSalesStats(
+        [FromQuery] DateTime? dateFrom = null,
+        [FromQuery] DateTime? dateTo = null,
+        [FromQuery] int? branchId = null,
+        [FromQuery] int? type = null)
+    {
+        var userRole = User.FindFirstValue(ClaimTypes.Role);
+        var userBranchId = User.FindFirstValue("BranchId");
+        if (userRole == "Staff" && !branchId.HasValue)
+            branchId = int.Parse(userBranchId!);
+        var result = await _reportService.GetSalesStatsAsync(dateFrom, dateTo, branchId, type);
+        return Ok(result);
+    }
+
     [HttpGet("ledger")]
     [Authorize(Roles = "Owner,Accountant,Staff")]
     public async Task<IActionResult> GetLedger([FromQuery] DateTime? dateFrom = null, [FromQuery] DateTime? dateTo = null, [FromQuery] int? branchId = null)
     {
         var result = await _reportService.GetLedgerAsync(dateFrom, dateTo, branchId);
+        return Ok(result);
+    }
+
+    [HttpGet("ledger-paged")]
+    [Authorize(Roles = "Owner,Accountant,Staff")]
+    public async Task<IActionResult> GetLedgerPaged([FromQuery] LedgerFilterDto filter)
+    {
+        var userBranchId = User.FindFirstValue("BranchId");
+        var userRole = User.FindFirstValue(ClaimTypes.Role);
+        if (userRole == "Staff" && !filter.BranchId.HasValue)
+            filter.BranchId = int.Parse(userBranchId!);
+        var result = await _reportService.GetLedgerPagedAsync(filter);
         return Ok(result);
     }
 }

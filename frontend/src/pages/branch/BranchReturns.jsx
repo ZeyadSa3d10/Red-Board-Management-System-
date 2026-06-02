@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNotifications } from '../../context/NotificationContext';
 import api from '../../api/realApi';
 import InvoiceCard from '../../components/invoices/InvoiceCard';
 import InvoicePrint from '../../components/invoices/InvoicePrint';
 import Modal from '../../components/common/Modal';
+import DataTable from '../../components/common/DataTable';
 import useFilters from '../../hooks/useFilters';
 import FilterBar from '../../components/common/FilterBar';
 import FilterGroup from '../../components/common/FilterGroup';
@@ -14,12 +15,13 @@ import { BsArrowReturnLeft, BsBoxSeam, BsPlus } from 'react-icons/bs';
 
 const RETURN_TYPES = ['return_sale', 'return_deferred'];
 
-
 const BranchReturns = () => {
   const { user } = useAuth();
   const { addNotification } = useNotifications();
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [totalCount, setTotalCount] = useState(0);
+  const [page, setPage] = useState(1);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [selectedInvoiceFull, setSelectedInvoiceFull] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -34,18 +36,33 @@ const BranchReturns = () => {
   const [returnPaymentMethod, setReturnPaymentMethod] = useState('cash');
   const [saving, setSaving] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
-    const results = await Promise.all(
-      RETURN_TYPES.map(type => api.getInvoices({ branchId: user?.branchId, type }).catch(() => []))
-    );
-    const all = results.flat();
-    all.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    setInvoices(all);
+    try {
+      const typeMap = { return_sale: 3, return_deferred: 4 };
+      const typesStr = filters.type ? String(typeMap[filters.type] || '') : '3,4';
+      const result = await api.getInvoices({
+        branchId: user?.branchId,
+        types: typesStr,
+        page,
+        pageSize: 10,
+        ...(filters.search ? { search: filters.search } : {}),
+      });
+      const items = Array.isArray(result) ? result : (result || []);
+      setInvoices(items);
+      setTotalCount(result.totalCount || items.length);
+    } catch {
+      setInvoices([]);
+      setTotalCount(0);
+    }
     setLoading(false);
-  };
+  }, [user, page, filters]);
 
-  useEffect(() => { load(); }, [user]);
+  useEffect(() => { load(); }, [load]);
+
+  const handleApply = () => { setPage(1); load(); };
+
+  const handleReset = () => { resetFilters(); setPage(1); };
 
   const handleSelectInvoice = async (inv) => {
     setSelectedInvoice(inv);
@@ -146,25 +163,21 @@ const BranchReturns = () => {
     setSaving(false);
   };
 
-  const filtered = invoices.filter(inv => {
-    if (filters.type && inv.type !== filters.type) return false;
-    if (filters.search) {
-      const q = filters.search.toLowerCase();
-      return String(inv.invoiceNumber || inv.id).toLowerCase().includes(q) ||
-        inv.clientName?.toLowerCase().includes(q);
-    }
-    return true;
-  });
-
   const typeOpts = [
     { value: '', label: 'كل المرتجعات' },
     ...RETURN_TYPES.map(t => ({ value: t, label: formatInvoiceType(t) })),
   ];
 
-  const summary = RETURN_TYPES.reduce((acc, t) => {
-    acc[t] = invoices.filter(i => i.type === t).length;
-    return acc;
-  }, {});
+  const columns = [
+    { key: 'invoiceNumber', header: 'رقم الفاتورة', render: (v) => <span style={{ fontWeight: 500 }}>{v}</span> },
+    { key: 'createdAt', header: 'التاريخ', render: (v) => formatDateTime(v) },
+    { key: 'type', header: 'النوع', render: (v) => <span className={`badge-custom ${getInvoiceBadgeColor(v)}`}>{formatInvoiceType(v)}</span> },
+    { key: 'clientName', header: 'العميل', render: (v) => v || 'نقدي' },
+    { key: 'createdBy', header: 'صادر باسم', render: (v) => <span style={{ fontSize: '0.85rem' }}>{v || '-'}</span> },
+    { key: 'totalAmount', header: 'الإجمالي', render: (v) => <span className="mono" style={{ fontWeight: 600, color: 'var(--color-danger)' }}>{formatCurrency(v)}</span> },
+    { key: 'paymentMethod', header: 'طريقة الدفع', render: (v) => v ? formatPaymentMethod(v) : '-' },
+    { key: 'actions', header: 'الإجراءات', sortable: false, render: (_, row) => <InvoicePrint invoice={row} /> },
+  ];
 
   return (
     <div>
@@ -175,75 +188,28 @@ const BranchReturns = () => {
         </button>
       </div>
 
-      <FilterBar variant="simple" onReset={resetFilters} activeCount={activeCount}>
+      <FilterBar variant="panel" onReset={handleReset} activeCount={activeCount} loading={loading} onApply={handleApply}>
         <FilterSearch value={filters.search} onChange={v => setFilter('search', v)} placeholder="بحث برقم الفاتورة أو العميل..." />
         <FilterGroup>
           <select className="form-control-custom" style={{ maxWidth: 200 }} value={filters.type}
-            onChange={e => setFilter('type', e.target.value)}>
+            onChange={e => { setFilter('type', e.target.value); setPage(1); }}>
             {typeOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </FilterGroup>
       </FilterBar>
 
-      {!loading && invoices.length > 0 && (
-        <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-          {RETURN_TYPES.map(t => (
-            <div key={t} className="card" style={{ flex: 1, padding: '12px 16px', textAlign: 'center' }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: 4 }}>{formatInvoiceType(t)}</div>
-              <div style={{ fontSize: '1.2rem', fontWeight: 700, fontFamily: 'var(--font-numbers)' }}>{summary[t]}</div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {loading ? (
-        <div className="loading-container"><div className="spinner-border" /></div>
-      ) : filtered.length === 0 ? (
-        <div className="card" style={{
-          padding: 60, textAlign: 'center', color: 'var(--color-text-muted)',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
-        }}>
-          <BsBoxSeam size={48} opacity={0.3} />
-          <span style={{ fontSize: '1rem' }}>
-            {invoices.length === 0 ? 'لا توجد مرتجعات مسجلة' : 'لا توجد نتائج للبحث'}
-          </span>
-        </div>
-      ) : (
-        <div className="card" style={{ overflow: 'hidden' }}>
-          <div className="table-container">
-          <table className="table-custom">
-            <thead>
-              <tr>
-                <th>رقم الفاتورة</th>
-                <th>التاريخ</th>
-                <th>النوع</th>
-                <th>العميل</th>
-                <th>صادر باسم</th>
-                <th>الإجمالي</th>
-                <th>طريقة الدفع</th>
-                <th>الإجراءات</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(inv => (
-                <tr key={inv.id} onClick={() => handleSelectInvoice(inv)} style={{ cursor: 'pointer' }}>
-                  <td style={{ fontWeight: 500 }}>{inv.invoiceNumber || inv.id}</td>
-                  <td>{formatDateTime(inv.createdAt)}</td>
-                  <td><span className={`badge-custom ${getInvoiceBadgeColor(inv.type)}`}>{formatInvoiceType(inv.type)}</span></td>
-                  <td>{inv.clientName || 'نقدي'}</td>
-                  <td style={{ fontSize: '0.85rem' }}>{inv.createdBy || '-'}</td>
-                  <td className="mono" style={{ fontWeight: 600, color: 'var(--color-danger)' }}>{formatCurrency(inv.totalAmount)}</td>
-                  <td>{inv.paymentMethod ? formatPaymentMethod(inv.paymentMethod) : '-'}</td>
-                  <td onClick={e => e.stopPropagation()}>
-                    <InvoicePrint invoice={inv} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
-        </div>
-      )}
+      <DataTable
+        columns={columns}
+        data={invoices}
+        loading={loading}
+        onRowClick={handleSelectInvoice}
+        serverSide
+        totalCount={totalCount}
+        page={page}
+        onPageChange={setPage}
+        pageSize={10}
+        emptyMessage="لا توجد مرتجعات مسجلة"
+      />
 
       <Modal show={!!selectedInvoice} onClose={() => setSelectedInvoice(null)}
         title={`مرتجع #${selectedInvoice?.invoiceNumber || selectedInvoice?.id}`} size="lg">
@@ -300,7 +266,7 @@ const BranchReturns = () => {
                     <td>{item.maxQty}</td>
                     <td style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       {item.fullyReturned ? (
-                        <span style={{ fontSize: '0.8rem', color: 'var(--color-success, #16a34a)', fontWeight: 500 }}>✅ تم الاسترجاع كلياً</span>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--color-success, #16a34a)', fontWeight: 500 }}>تم الاسترجاع كلياً</span>
                       ) : (
                         <>
                           <input type="number" min="0" max={item.maxQty} value={item.qty}

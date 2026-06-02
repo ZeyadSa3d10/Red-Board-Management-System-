@@ -15,6 +15,7 @@ const DataTable = ({
   onSortChange,
   sortKey: controlledSortKey,
   sortDir: controlledSortDir,
+  emptyMessage = 'لا توجد بيانات',
 }) => {
   const [localSearch, setLocalSearch] = useState('');
   const [localSortKey, setLocalSortKey] = useState(null);
@@ -56,21 +57,20 @@ const DataTable = ({
   const paged = serverSide ? sorted : sorted.slice((page - 1) * pageSize, page * pageSize);
 
   const handleSort = (key) => {
+    const newDir = sortKey === key && sortDir === 'asc' ? 'desc' : 'asc';
     if (!serverSide) {
-      if (localSortKey === key) {
-        setLocalSortDir(d => d === 'asc' ? 'desc' : 'asc');
-      } else {
-        setLocalSortKey(key);
-        setLocalSortDir('asc');
-      }
+      setLocalSortKey(key);
+      setLocalSortDir(newDir);
     }
-    onSortChange?.(key, localSortKey === key && localSortDir === 'asc' ? 'desc' : 'asc');
+    onSortChange?.(key, newDir);
   };
 
-  if (loading) {
+  if (loading && !data?.length) {
     return (
-      <div className="loading-container">
-        <div className="spinner-border" role="status" />
+      <div className="card">
+        <div className="loading-container">
+          <div className="spinner-border" role="status" />
+        </div>
       </div>
     );
   }
@@ -91,7 +91,12 @@ const DataTable = ({
         </div>
       )}
 
-      <div style={{ overflowX: 'auto' }}>
+      <div style={{ overflowX: 'auto', position: 'relative', minHeight: data?.length ? 100 : 0 }}>
+        {loading && data?.length > 0 && (
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(255,255,255,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2 }}>
+            <div className="spinner-border" role="status" />
+          </div>
+        )}
         <table className="table-custom">
           <thead>
             <tr>
@@ -115,7 +120,9 @@ const DataTable = ({
             {paged.length === 0 ? (
               <tr>
                 <td colSpan={columns.length} style={{ textAlign: 'center', padding: 40, color: 'var(--color-text-muted)' }}>
-                  لا توجد بيانات
+                  {loading ? (
+                    <div className="spinner-border spinner-border-sm" role="status" />
+                  ) : emptyMessage}
                 </td>
               </tr>
             ) : (
@@ -134,8 +141,9 @@ const DataTable = ({
       </div>
 
       {totalPages > 1 && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderTop: '1px solid var(--color-border)' }}>
-          <span style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>
+        <div className="table-pagination">
+          <span style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            {loading && <span className="spinner-border spinner-border-sm" />}
             عرض {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, total)} من {total}
           </span>
           <div style={{ display: 'flex', gap: 8 }}>

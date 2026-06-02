@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api/realApi';
 import SalesInvoiceForm from '../../components/invoices/SalesInvoiceForm';
@@ -6,38 +6,53 @@ import InvoiceCard from '../../components/invoices/InvoiceCard';
 import InvoicePrint from '../../components/invoices/InvoicePrint';
 import Modal from '../../components/common/Modal';
 import Badge from '../../components/common/Badge';
+import DataTable from '../../components/common/DataTable';
 import useFilters from '../../hooks/useFilters';
 import FilterBar from '../../components/common/FilterBar';
 import FilterGroup from '../../components/common/FilterGroup';
 import FilterSearch from '../../components/common/FilterSearch';
+import DateRangePicker from '../../components/common/DateRangePicker';
 import { formatInvoiceType, formatCurrency, formatDateTime, formatPaymentMethod, getInvoiceBadgeColor } from '../../utils/formatters';
-import { BsPlus, BsArrowDown, BsArrowUp } from 'react-icons/bs';
+import { BsPlus } from 'react-icons/bs';
 
 const BranchInvoices = () => {
   const { user } = useAuth();
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [totalCount, setTotalCount] = useState(0);
+  const [page, setPage] = useState(1);
   const [showForm, setShowForm] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [selectedInvoiceFull, setSelectedInvoiceFull] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
-  const [visibleCount, setVisibleCount] = useState(10);
-  const [filterInputs, setFilterInputs] = useState({ dateFrom: '', dateTo: '' });
-  const tableRef = useRef(null);
-  const { filters, setFilter, resetFilters, activeCount } = useFilters({ search: '', type: '' });
 
-  const load = async (appliedFilters = {}) => {
+  const { filters, setFilter, resetFilters, activeCount } = useFilters({
+    search: '',
+    type: '',
+    dateFrom: '',
+    dateTo: '',
+  }, { debounceMs: 400 });
+
+  const loadInvoices = useCallback(async (filtersToApply) => {
     setLoading(true);
     try {
-      const params = user?.role === 'owner' || user?.role === 'accountant'
+      const baseParams = user?.role === 'owner' || user?.role === 'accountant'
         ? {} : { branchId: user?.branchId };
-      if (appliedFilters.dateFrom) params.dateFrom = appliedFilters.dateFrom;
-      if (appliedFilters.dateTo) params.dateTo = appliedFilters.dateTo;
+      const apiParams = {
+        ...baseParams,
+        page: page,
+        pageSize: 10,
+        ...(filtersToApply.type ? { type: filtersToApply.type } : {}),
+        ...(filtersToApply.dateFrom ? { dateFrom: filtersToApply.dateFrom } : {}),
+        ...(filtersToApply.dateTo ? { dateTo: filtersToApply.dateTo } : {}),
+      };
       const [salesData, purchaseData] = await Promise.all([
-        api.getInvoices(params),
-        api.getPurchaseInvoices(params).catch(() => []),
+        api.getInvoices(apiParams).catch(() => []),
+        api.getPurchaseInvoicesFiltered(apiParams).catch(() => ({ items: [], totalCount: 0 })),
       ]);
-      const purchases = (purchaseData || []).map(p => ({
+
+      const salesResult = Array.isArray(salesData) ? salesData : [];
+      const purchases = (purchaseData.items || []).map(p => ({
         id: 'p_' + p.id,
         invoiceNumber: p.invoiceNumber,
         type: 'purchase',
@@ -52,27 +67,32 @@ const BranchInvoices = () => {
         _raw: p,
         _isPurchase: true,
       }));
-      const merged = [...(salesData || []), ...purchases]
+
+      const merged = [...salesResult, ...purchases]
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       setInvoices(merged);
+      setTotalCount((salesResult.totalCount || 0) + (purchaseData.totalCount || 0));
     } catch (err) {
       console.error('Failed to load invoices:', err);
       setInvoices([]);
+      setTotalCount(0);
     }
     setLoading(false);
-  };
+  }, [user, page]);
 
-  const handleApplyFilter = () => {
-    load({ dateFrom: filterInputs.dateFrom, dateTo: filterInputs.dateTo });
+  useEffect(() => {
+    loadInvoices(filters);
+  }, [filters, loadInvoices]);
+
+  const handleApply = () => {
+    setPage(1);
+    loadInvoices(filters);
   };
 
   const handleReset = () => {
     resetFilters();
-    setFilterInputs({ dateFrom: '', dateTo: '' });
-    load();
+    setPage(1);
   };
-
-  useEffect(() => { load(); }, [user]);
 
   const handleSelectInvoice = async (inv) => {
     setSelectedInvoice(inv);
@@ -92,20 +112,20 @@ const BranchInvoices = () => {
     setLoadingDetail(false);
   };
 
-  const filtered = invoices.filter(inv => {
-    if (filters.type && inv.type !== filters.type) return false;
-    if (filters.search) {
-      const q = filters.search.toLowerCase();
-      const matchId = String(inv.invoiceNumber || inv.id).toLowerCase().includes(q);
-      const matchName = inv.clientName?.toLowerCase().includes(q);
-      const matchProject = (inv.type === 'supply_installation' || inv.type === 'return_supply_installation') && inv.projectName?.toLowerCase().includes(q);
-      return matchId || matchName || matchProject;
-    }
-    return true;
-  });
-
-  const showingAll = visibleCount >= filtered.length;
-  const visibleInvoices = filtered.slice(0, visibleCount);
+  const columns = [
+    { key: 'invoiceNumber', header: 'رقم الفاتورة', render: (v) => <span style={{ fontWeight: 500 }}>{v}</span> },
+    { key: 'createdAt', header: 'التاريخ', render: (v) => formatDateTime(v) },
+    { key: 'type', header: 'النوع', render: (v) => <span className={`badge-custom ${getInvoiceBadgeColor(v)}`}>{formatInvoiceType(v)}</span> },
+    { key: 'branchName', header: 'الفرع', render: (v) => <span style={{ fontSize: '0.85rem' }}>{v || '-'}</span> },
+    { key: 'clientName', header: 'العميل', render: (v, row) => {
+      if (row.type === 'supply_installation' || row.type === 'return_supply_installation') return row.projectName || '—';
+      return v || 'نقدي';
+    }},
+    { key: 'createdBy', header: 'صادر باسم', render: (v) => <span style={{ fontSize: '0.85rem' }}>{v || '-'}</span> },
+    { key: 'totalAmount', header: 'الإجمالي', render: (v) => <span className="mono" style={{ fontWeight: 600 }}>{formatCurrency(v)}</span> },
+    { key: 'paymentMethod', header: 'طريقة الدفع', render: (v) => v ? formatPaymentMethod(v) : '-' },
+    { key: 'actions', header: 'الإجراءات', sortable: false, render: (_, row) => <InvoicePrint invoice={row} /> },
+  ];
 
   return (
     <div>
@@ -117,10 +137,10 @@ const BranchInvoices = () => {
       </div>
 
       {showForm ? (
-        <SalesInvoiceForm onComplete={() => { setShowForm(false); load(); }} />
+        <SalesInvoiceForm onComplete={() => { setShowForm(false); loadInvoices(filters); }} />
       ) : (
         <>
-          <FilterBar variant="panel" onReset={handleReset} activeCount={activeCount}>
+          <FilterBar variant="panel" onReset={handleReset} activeCount={activeCount} loading={loading} onApply={handleApply}>
             <FilterSearch value={filters.search} onChange={v => setFilter('search', v)} placeholder="بحث برقم الفاتورة أو العميل..." />
             <FilterGroup>
               <select className="form-control-custom" style={{ maxWidth: 200 }} value={filters.type}
@@ -136,75 +156,23 @@ const BranchInvoices = () => {
                 <option value="purchase">فاتورة مورد</option>
               </select>
             </FilterGroup>
-            <FilterGroup label="من تاريخ">
-              <input className="form-control-custom" type="date" value={filterInputs.dateFrom}
-                onChange={e => setFilterInputs(prev => ({ ...prev, dateFrom: e.target.value }))} />
-            </FilterGroup>
-            <FilterGroup label="إلى تاريخ">
-              <input className="form-control-custom" type="date" value={filterInputs.dateTo}
-                onChange={e => setFilterInputs(prev => ({ ...prev, dateTo: e.target.value }))} />
-            </FilterGroup>
-            <button className="btn-custom btn-custom-primary" onClick={handleApplyFilter} style={{ alignSelf: 'flex-end' }}>
-              تطبيق
-            </button>
+            <DateRangePicker
+              value={{ dateFrom: filters.dateFrom, dateTo: filters.dateTo }}
+              onChange={({ dateFrom, dateTo }) => { setFilter('dateFrom', dateFrom); setFilter('dateTo', dateTo); }}
+            />
           </FilterBar>
 
-          {loading ? (
-            <div className="loading-container"><div className="spinner-border" /></div>
-          ) : (
-            <div className="card" style={{ overflow: 'hidden' }} ref={tableRef}>
-              <div className="table-container">
-              <table className="table-custom">
-                <thead>
-                  <tr>
-                    <th>رقم الفاتورة</th>
-                    <th>التاريخ</th>
-                    <th>النوع</th>
-                    <th>الفرع</th>
-                    <th>العميل</th>
-                    <th>صادر باسم</th>
-                    <th>الإجمالي</th>
-                    <th>طريقة الدفع</th>
-                    <th>الإجراءات</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleInvoices.map(inv => (
-                    <tr key={inv.id} onClick={() => handleSelectInvoice(inv)} style={{ cursor: 'pointer' }}>
-                      <td style={{ fontWeight: 500 }}>{inv.invoiceNumber || inv.id}</td>
-                      <td>{formatDateTime(inv.createdAt)}</td>
-                      <td><span className={`badge-custom ${getInvoiceBadgeColor(inv.type)}`}>{formatInvoiceType(inv.type)}</span></td>
-                      <td style={{ fontSize: '0.85rem' }}>{inv.branchName || '-'}</td>
-                      <td>{inv.type === 'supply_installation' || inv.type === 'return_supply_installation' ? inv.projectName || '—' : inv.clientName || 'نقدي'}</td>
-                      <td style={{ fontSize: '0.85rem' }}>{inv.createdBy || '-'}</td>
-                      <td className="mono" style={{ fontWeight: 600 }}>{formatCurrency(inv.totalAmount)}</td>
-                      <td>{inv.paymentMethod ? formatPaymentMethod(inv.paymentMethod) : '-'}</td>
-                      <td>
-                        <InvoicePrint invoice={inv} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              </div>
-              {filtered.length > 10 && (
-                <div style={{ textAlign: 'center', padding: '12px 0' }}>
-                  {!showingAll ? (
-                    <button className="btn-custom btn-custom-outline" onClick={() => setVisibleCount(prev => Math.min(prev + 10, filtered.length))}>
-                      <BsArrowDown size={16} /> عرض المزيد ({filtered.length - visibleCount})
-                    </button>
-                  ) : (
-                    <button className="btn-custom btn-custom-outline" onClick={() => {
-                      setVisibleCount(10);
-                      tableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    }}>
-                      <BsArrowUp size={16} /> عرض الأقل
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+          <DataTable
+            columns={columns}
+            data={invoices}
+            loading={loading}
+            onRowClick={handleSelectInvoice}
+            serverSide
+            totalCount={totalCount}
+            page={page}
+            onPageChange={setPage}
+            pageSize={10}
+          />
         </>
       )}
 

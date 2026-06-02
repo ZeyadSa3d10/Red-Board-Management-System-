@@ -180,7 +180,9 @@ const BranchDailyRevenue = () => {
           )}
           <input className="form-control-custom" type="date" value={date}
             onChange={e => setDate(e.target.value)} style={{ maxWidth: 200 }} />
-          <button className="btn-custom btn-custom-primary btn-custom-sm" onClick={() => loadData(date)}>تطبيق</button>
+          <button className="btn-custom btn-custom-primary btn-custom-sm" onClick={() => loadData(date)} disabled={loading}>
+            {loading ? 'جاري التحميل...' : 'تطبيق'}
+          </button>
         </div>
       </div>
 

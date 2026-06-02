@@ -1,4 +1,4 @@
-import { useMemo, useState, useRef } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import { formatCurrency } from "../../utils/formatters";
 import {
   BsExclamationTriangle,
@@ -6,6 +6,7 @@ import {
   BsPencil,
   BsArrowDown,
   BsArrowUp,
+  BsSearch,
 } from "react-icons/bs";
 import api from "../../api/realApi";
 import { useNotifications } from "../../context/NotificationContext";
@@ -21,22 +22,34 @@ const StockTable = ({
   otherBranches = [],
   allStockMap = {},
   userRole,
+  loading: externalLoading,
+  serverSide,
+  onServerFilter,
+  totalCount,
+  page: currentPage,
+  onPageChange,
 }) => {
   const showCost = userRole === "owner";
   const { addNotification } = useNotifications();
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
-  const [visibleCount, setVisibleCount] = useState(10);
+  const [localPage, setLocalPage] = useState(1);
+  const [visibleCount, setVisibleCount] = useState(20);
+  const [internalLoading, setInternalLoading] = useState(false);
   const tableRef = useRef(null);
 
+  const loading = externalLoading ?? internalLoading;
+  const page = serverSide ? (currentPage ?? localPage) : localPage;
+  const setPage = serverSide ? (onPageChange ?? setLocalPage) : setLocalPage;
+  const pageSize = serverSide ? 20 : visibleCount;
+
   const categories = useMemo(() => {
-    const cats = [
-      ...new Set(products.map((p) => p.categoryName || p.categoryId)),
-    ];
+    const cats = [...new Set(products.map((p) => p.categoryName || p.categoryId))];
     return cats;
   }, [products]);
 
   const filtered = useMemo(() => {
+    if (serverSide || !products) return products || [];
     let result = [...products];
     if (search) {
       const q = search.toLowerCase();
@@ -50,10 +63,27 @@ const StockTable = ({
       );
     }
     return result;
-  }, [products, search, categoryFilter]);
+  }, [products, search, categoryFilter, serverSide]);
 
-  const showingAll = visibleCount >= filtered.length;
-  const visibleItems = filtered.slice(0, visibleCount);
+  const total = serverSide ? (totalCount ?? filtered.length) : filtered.length;
+  const totalPages = Math.ceil(total / pageSize);
+  const visibleItems = serverSide ? (filtered || []) : filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  const handleSearch = (value) => {
+    setSearch(value);
+    if (serverSide) {
+      setPage(1);
+      onServerFilter?.({ search: value, category: categoryFilter, page: 1 });
+    }
+  };
+
+  const handleCategoryFilter = (value) => {
+    setCategoryFilter(value);
+    if (serverSide) {
+      setPage(1);
+      onServerFilter?.({ search, category: value, page: 1 });
+    }
+  };
 
   const lowStockItems = useMemo(
     () =>
@@ -68,16 +98,15 @@ const StockTable = ({
 
   const handleDelete = async (id, name) => {
     if (window.confirm(`هل أنت متأكد من حذف المنتج "${name}"؟`)) {
+      setInternalLoading(true);
       try {
         await api.deleteProduct(id);
         addNotification("تم حذف المنتج بنجاح", "success");
         if (onRefresh) onRefresh();
       } catch (err) {
-        addNotification(
-          "فشل حذف المنتج. قد يكون مرتبطاً بمعاملات سابقة.",
-          "danger",
-        );
+        addNotification("فشل حذف المنتج. قد يكون مرتبطاً بمعاملات سابقة.", "danger");
       }
+      setInternalLoading(false);
     }
   };
 
@@ -118,23 +147,22 @@ const StockTable = ({
         </div>
       )}
 
-      <FilterBar variant="simple">
+      <FilterBar variant="simple" loading={loading}>
         <FilterSearch
           value={search}
-          onChange={setSearch}
+          onChange={handleSearch}
           placeholder="بحث بالاسم أو الباركود..."
         />
         <select
           className="form-control-custom"
           style={{ maxWidth: 200 }}
           value={categoryFilter}
-          onChange={(e) => setCategoryFilter(e.target.value)}
+          onChange={(e) => handleCategoryFilter(e.target.value)}
+          disabled={loading}
         >
           <option value="">كل الفئات</option>
           {categories.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
+            <option key={c} value={c}>{c}</option>
           ))}
         </select>
       </FilterBar>
@@ -151,18 +179,14 @@ const StockTable = ({
                 <>
                   <th className="th-accent">مخزني</th>
                   {otherBranches.map((b) => (
-                    <th key={b.id} className="th-sub">
-                      {b.name}
-                    </th>
+                    <th key={b.id} className="th-sub">{b.name}</th>
                   ))}
                 </>
               ) : (
                 <>
-                  {branches
-                    .filter((b) => !b.isAdminBranch)
-                    .map((b) => (
-                      <th key={b.id}>{b.name}</th>
-                    ))}
+                  {branches.filter((b) => !b.isAdminBranch).map((b) => (
+                    <th key={b.id}>{b.name}</th>
+                  ))}
                   <th>الإجمالي</th>
                 </>
               )}
@@ -175,121 +199,84 @@ const StockTable = ({
             </tr>
           </thead>
           <tbody>
-            {visibleItems.map((p) => {
-              const total = branchId ? getBranchQty(p, branchId) : p.totalQty;
-              const avgCost = branchId
-                ? getBranchAvgCost(p, branchId)
-                : total > 0
-                  ? p.totalValue / total
-                  : p.purchasePrice || 0;
-              const isLow = total <= p.minStockAlert;
-              return (
-                <tr key={p.id}>
-                  <td>{p.barcode || p.id}</td>
-                  <td className="td-name">{p.name}</td>
-                  <td>{p.categoryName}</td>
-                  <td>{p.unit}</td>
-                  {branchId ? (
-                    <>
-                      <td className="td-qty">{total}</td>
-                      {otherBranches.map((b) => {
-                        const qty = getOtherBranchQty(p.id, b.id);
-                        return (
-                          <td
-                            key={b.id}
-                            className={
-                              qty > 0 ? "td-other-active" : "td-other-muted"
-                            }
-                          >
-                            {qty}
-                          </td>
-                        );
-                      })}
-                    </>
-                  ) : (
-                    <>
-                      {branches
-                        .filter((b) => !b.isAdminBranch)
-                        .map((b) => (
+            {loading ? (
+              <tr>
+                <td colSpan={20} style={{ textAlign: 'center', padding: 40 }}>
+                  <div className="spinner-border" role="status" />
+                </td>
+              </tr>
+            ) : visibleItems.length === 0 ? (
+              <tr>
+                <td colSpan={20} style={{ textAlign: 'center', padding: 40, color: 'var(--color-text-muted)' }}>
+                  لا توجد منتجات
+                </td>
+              </tr>
+            ) : (
+              visibleItems.map((p) => {
+                const total = branchId ? getBranchQty(p, branchId) : p.totalQty;
+                const avgCost = branchId
+                  ? getBranchAvgCost(p, branchId)
+                  : total > 0 ? p.totalValue / total : p.purchasePrice || 0;
+                const isLow = total <= p.minStockAlert;
+                return (
+                  <tr key={p.id}>
+                    <td>{p.barcode || p.id}</td>
+                    <td className="td-name">{p.name}</td>
+                    <td>{p.categoryName}</td>
+                    <td>{p.unit}</td>
+                    {branchId ? (
+                      <>
+                        <td className="td-qty">{total}</td>
+                        {otherBranches.map((b) => {
+                          const qty = getOtherBranchQty(p.id, b.id);
+                          return <td key={b.id} className={qty > 0 ? "td-other-active" : "td-other-muted"}>{qty}</td>;
+                        })}
+                      </>
+                    ) : (
+                      <>
+                        {branches.filter((b) => !b.isAdminBranch).map((b) => (
                           <td key={b.id}>{getBranchQty(p, b.id)}</td>
                         ))}
-                      <td className="td-total">{total}</td>
-                    </>
-                  )}
-                  {showCost && (
-                    <td className="mono">{formatCurrency(avgCost)}</td>
-                  )}
-                  <td className="mono">{formatCurrency(p.currentSalePrice)}</td>
-                  {showCost && (
-                    <td className="mono td-cost">
-                      {formatCurrency(
-                        branchId ? total * avgCost : p.totalValue,
-                      )}
-                    </td>
-                  )}
-                  {!branchId && (
-                    <td className="mono td-sale">
-                      {formatCurrency(total * p.currentSalePrice)}
-                    </td>
-                  )}
-                  <td>
-                    <span
-                      className={`badge-custom ${isLow ? "badge-custom-danger" : "badge-custom-success"}`}
-                    >
-                      {isLow ? "منخفض" : "متوفر"}
-                    </span>
-                  </td>
-                  {onEdit && (
+                        <td className="td-total">{total}</td>
+                      </>
+                    )}
+                    {showCost && <td className="mono">{formatCurrency(avgCost)}</td>}
+                    <td className="mono">{formatCurrency(p.currentSalePrice)}</td>
+                    {showCost && <td className="mono td-cost">{formatCurrency(branchId ? total * avgCost : p.totalValue)}</td>}
+                    {!branchId && <td className="mono td-sale">{formatCurrency(total * p.currentSalePrice)}</td>}
                     <td>
-                      <button
-                        className="btn-icon"
-                        style={{ marginLeft: 8 }}
-                        title="تعديل المنتج"
-                        onClick={() => onEdit(p)}
-                      >
-                        <BsPencil size={16} />
-                      </button>
-                      <button
-                        className="btn-icon btn-icon-danger"
-                        title="حذف المنتج"
-                        onClick={() => handleDelete(p.id, p.name)}
-                      >
-                        <BsTrash size={16} />
-                      </button>
+                      <span className={`badge-custom ${isLow ? "badge-custom-danger" : "badge-custom-success"}`}>
+                        {isLow ? "منخفض" : "متوفر"}
+                      </span>
                     </td>
-                  )}
-                </tr>
-              );
-            })}
+                    {onEdit && (
+                      <td>
+                        <button className="btn-icon" style={{ marginLeft: 8 }} title="تعديل المنتج" onClick={() => onEdit(p)}>
+                          <BsPencil size={16} />
+                        </button>
+                        <button className="btn-icon btn-icon-danger" title="حذف المنتج" onClick={() => handleDelete(p.id, p.name)}>
+                          <BsTrash size={16} />
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })
+            )}
           </tbody>
         </table>
       </div>
-      {filtered.length > 10 && (
+
+      {totalPages > 1 && (
         <div className="table-pagination">
-          {!showingAll ? (
-            <button
-              className="btn-custom btn-custom-outline"
-              onClick={() =>
-                setVisibleCount((prev) => Math.min(prev + 10, filtered.length))
-              }
-            >
-              <BsArrowDown size={16} /> عرض المزيد (
-              {filtered.length - visibleCount})
-            </button>
-          ) : (
-            <button
-              className="btn-custom btn-custom-outline"
-              onClick={() => {
-                setVisibleCount(10);
-                tableRef.current?.scrollIntoView({
-                  behavior: "smooth",
-                  block: "start",
-                });
-              }}
-            >
-              <BsArrowUp size={16} /> عرض الأقل
-            </button>
-          )}
+          <span style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            {loading && <span className="spinner-border spinner-border-sm" />}
+            عرض {Math.min((page - 1) * pageSize + 1, total)}-{Math.min(page * pageSize, total)} من {total}
+          </span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn-custom btn-custom-outline btn-custom-sm" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>السابق</button>
+            <button className="btn-custom btn-custom-outline btn-custom-sm" disabled={page >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>التالي</button>
+          </div>
         </div>
       )}
     </div>

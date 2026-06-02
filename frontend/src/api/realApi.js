@@ -168,11 +168,13 @@ export const api = {
     const params = {};
     if (filters.branchId) params.branchId = filters.branchId;
     if (filters.type) params.type = invTypeToBackend[filters.type];
+    if (filters.types) params.types = filters.types;
     if (filters.date) params.dateFrom = filters.date;
     if (filters.dateFrom) params.dateFrom = filters.dateFrom;
     if (filters.dateTo) params.dateTo = filters.dateTo;
     if (filters.clientId) params.clientId = filters.clientId;
     if (filters.relatedInvoiceId) params.relatedInvoiceId = filters.relatedInvoiceId;
+    if (filters.search) params.search = filters.search;
     if (filters.page) params.page = filters.page;
     if (filters.pageSize) params.pageSize = filters.pageSize;
     const data = await http.get('/Invoice', params);
@@ -360,6 +362,9 @@ export const api = {
     if (filters.branchId) params.branchId = filters.branchId;
     if (filters.dateFrom) params.dateFrom = filters.dateFrom;
     if (filters.dateTo) params.dateTo = filters.dateTo;
+    if (filters.search) params.search = filters.search;
+    if (filters.page) params.pageNumber = filters.page;
+    if (filters.pageSize) params.pageSize = filters.pageSize;
     return http.get('/Expense', params);
   },
 
@@ -652,6 +657,25 @@ export const api = {
     return data?.items ? data : { items: (data || []).map(mapPurchaseInvoice), totalCount: 0, pageNumber: 1, pageSize: 20 };
   },
 
+  getLedgerFiltered: async (filter = {}) => {
+    const params = {};
+    if (filter.search) params.search = filter.search;
+    if (filter.branchId) params.branchId = filter.branchId;
+    if (filter.dateFrom) params.dateFrom = filter.dateFrom;
+    if (filter.dateTo) params.dateTo = filter.dateTo;
+    if (filter.page) params.pageNumber = filter.page;
+    if (filter.pageSize) params.pageSize = filter.pageSize;
+    return http.get('/Report/ledger-paged', params);
+  },
+
+  getSalesStats: async (filter = {}) => {
+    const params = {};
+    if (filter.dateFrom) params.dateFrom = filter.dateFrom;
+    if (filter.dateTo) params.dateTo = filter.dateTo;
+    if (filter.branchId) params.branchId = filter.branchId;
+    if (filter.type) params.type = invTypeToBackend[filter.type] || filter.type;
+    return http.get('/Report/sales-stats', params);
+  },
 };
 
 function mapInvoice(data) {

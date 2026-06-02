@@ -722,6 +722,143 @@ textarea.form-control-custom {
   font-weight: 700;
 }
 
+/* --- Filter Bar Loader --- */
+.filter-bar--loading {
+  opacity: 0.7;
+  pointer-events: none;
+  position: relative;
+}
+
+.filter-bar-loader {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+}
+
+.filter-bar-loader .spinner-border {
+  color: var(--color-accent);
+}
+
+/* --- Filter Bar Extra (collapsible) --- */
+.filter-bar-extra {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+  width: 100%;
+  padding-top: var(--space-3);
+  margin-top: var(--space-2);
+  border-top: 1px solid var(--color-border-light);
+}
+
+.filter-bar-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin-right: auto;
+}
+
+.filter-bar-item {
+  display: contents;
+}
+
+/* --- Date Range Picker --- */
+.date-range-picker {
+  position: relative;
+}
+
+.filter-date-inputs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filter-date-inputs .form-control-custom {
+  max-width: 150px;
+  min-width: 120px;
+}
+
+.date-range-separator {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.date-range-presets {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 50;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-dropdown);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  min-width: 120px;
+}
+
+.date-range-preset-btn {
+  padding: 6px 12px;
+  font-size: var(--text-sm);
+  text-align: right;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--color-text-primary);
+  transition: background var(--transition-fast);
+}
+
+.date-range-preset-btn:hover {
+  background: var(--color-surface-alt);
+}
+
+/* --- Select Filter --- */
+.select-filter-wrapper {
+  position: relative;
+}
+
+.select-filter-wrapper .form-control-custom {
+  appearance: none;
+  padding-left: 24px;
+}
+
+.select-filter-arrow {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+/* --- Ghost Button --- */
+.btn-custom-ghost {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--color-text-secondary);
+}
+
+.btn-custom-ghost:hover {
+  background: var(--color-surface-alt);
+  color: var(--color-text-primary);
+}
+
+/* --- Table Pagination Enhanced --- */
+.table-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-border);
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 /* ===== Stats Grid ===== */
 .stats-grid {
   display: grid;

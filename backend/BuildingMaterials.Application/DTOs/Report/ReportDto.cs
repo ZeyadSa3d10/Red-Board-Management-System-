@@ -179,6 +179,14 @@ public class LedgerEntryDto
     public string? ReferenceNumber { get; set; }
 }
 
+public class SalesStatsDto
+{
+    public decimal TotalSales { get; set; }
+    public decimal TotalReturns { get; set; }
+    public decimal TotalDeferred { get; set; }
+    public decimal NetSales { get; set; }
+}
+
 public class LedgerResponseDto
 {
     public decimal TotalIn { get; set; }

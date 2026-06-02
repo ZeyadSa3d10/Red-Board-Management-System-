@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import api from '../../api/realApi';
 import Modal from '../../components/common/Modal';
+import DataTable from '../../components/common/DataTable';
 import { formatCurrency } from '../../utils/formatters';
 import { useNotifications } from '../../context/NotificationContext';
 import useFilters from '../../hooks/useFilters';
@@ -11,21 +12,30 @@ import { BsPlus } from 'react-icons/bs';
 const OwnerProducts = () => {
   const { addNotification } = useNotifications();
   const [products, setProducts] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
-  const { filters, setFilter, resetFilters, activeCount } = useFilters({ search: '' });
+  const [page, setPage] = useState(1);
+  const { filters, setFilter, resetFilters, activeCount } = useFilters({ search: '' }, { debounceMs: 300 });
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: '', barcode: '', unit: 'قطعة', purchasePrice: '', minSalePrice: '', currentSalePrice: '', minStockAlert: '10', categoryId: '' });
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
-    const [p, c] = await Promise.all([api.getProducts(), api.getCategories()]);
-    setProducts(p || []);
-    setCategories(c || []);
+    try {
+      const result = await api.getProductsFiltered({ search: filters.search, page, pageSize: 15 });
+      const items = result?.items || result || [];
+      setProducts(items);
+      setTotalCount(result?.totalCount || items.length);
+    } catch { setProducts([]); setTotalCount(0); }
     setLoading(false);
-  };
+  }, [filters.search, page]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [filters.search, page]);
+
+  useEffect(() => {
+    api.getCategories().then(c => setCategories(c || [])).catch(() => {});
+  }, []);
 
   const handleAdd = async () => {
     if (!form.name || !form.unit || !form.purchasePrice || !form.minSalePrice || !form.currentSalePrice || !form.categoryId) {
@@ -39,10 +49,16 @@ const OwnerProducts = () => {
     load();
   };
 
-  const filtered = products.filter(p =>
-    p.name?.toLowerCase().includes(filters.search.toLowerCase()) ||
-    p.barcode?.toLowerCase().includes(filters.search.toLowerCase())
-  );
+  const columns = [
+    { key: 'name', header: 'الاسم', render: (v) => <span style={{ fontWeight: 500 }}>{v}</span> },
+    { key: 'barcode', header: 'باركود', render: (v) => v || '—' },
+    { key: 'categoryName', header: 'التصنيف', render: (v) => v || '—' },
+    { key: 'unit', header: 'الوحدة' },
+    { key: 'purchasePrice', header: 'سعر الشراء', render: (v) => <span className="mono">{formatCurrency(v)}</span> },
+    { key: 'minSalePrice', header: 'أقل سعر بيع', render: (v) => <span className="mono">{formatCurrency(v)}</span> },
+    { key: 'currentSalePrice', header: 'سعر البيع', render: (v) => <span className="mono">{formatCurrency(v)}</span> },
+    { key: 'minStockAlert', header: 'الحد الأدنى' },
+  ];
 
   return (
     <div>
@@ -52,46 +68,21 @@ const OwnerProducts = () => {
           <BsPlus size={20} /> إضافة منتج
         </button>
       </div>
-      <FilterBar variant="simple" onReset={resetFilters} activeCount={activeCount}>
-        <FilterSearch value={filters.search} onChange={v => setFilter('search', v)} />
+
+      <FilterBar variant="simple" onReset={() => { resetFilters(); setPage(1); }} activeCount={activeCount} loading={loading}>
+        <FilterSearch value={filters.search} onChange={v => { setFilter('search', v); setPage(1); }} />
       </FilterBar>
 
-      {loading ? (
-        <div className="loading-container"><div className="spinner-border" /></div>
-      ) : (
-        <div className="card" style={{ overflow: 'hidden' }}>
-          <div className="table-container">
-          <table className="table-custom">
-            <thead>
-              <tr>
-                <th>الاسم</th>
-                <th>باركود</th>
-                <th>التصنيف</th>
-                <th>الوحدة</th>
-                <th>سعر الشراء</th>
-                <th>أقل سعر بيع</th>
-                <th>سعر البيع</th>
-                <th>الحد الأدنى</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(p => (
-                <tr key={p.id}>
-                  <td style={{ fontWeight: 500 }}>{p.name}</td>
-                  <td>{p.barcode || '—'}</td>
-                  <td>{p.categoryName || '—'}</td>
-                  <td>{p.unit}</td>
-                  <td className="mono">{formatCurrency(p.purchasePrice)}</td>
-                  <td className="mono">{formatCurrency(p.minSalePrice)}</td>
-                  <td className="mono">{formatCurrency(p.currentSalePrice)}</td>
-                  <td>{p.minStockAlert}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
-        </div>
-      )}
+      <DataTable
+        columns={columns}
+        data={products}
+        loading={loading}
+        serverSide
+        totalCount={totalCount}
+        page={page}
+        onPageChange={setPage}
+        pageSize={15}
+      />
 
       <Modal show={showForm} onClose={() => setShowForm(false)} title="إضافة منتج جديد">
         <div className="grid-2-sm" style={{ gap: 16 }}>

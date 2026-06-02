@@ -6,6 +6,8 @@ using BuildingMaterials.Domain.Entities;
 using BuildingMaterials.Domain.Enums;
 using BuildingMaterials.Domain.Exceptions;
 using BuildingMaterials.Infrastructure.Data;
+using BuildingMaterials.Application.Extensions;
+using BuildingMaterials.Infrastructure.Extensions;
 using Microsoft.EntityFrameworkCore;
 
 namespace BuildingMaterials.Application.Services;
@@ -26,34 +28,13 @@ public class EmployeeService : IEmployeeService
         var query = _context.Employees
             .Include(x => x.Branch)
             .Where(x => !x.IsDeleted)
-            .AsQueryable();
+            .AsQueryable()
+            .ApplySearch(filter.Search, e => e.FullName, e => e.Phone)
+            .ApplyWhereIf(filter.BranchId.HasValue, e => e.BranchId == filter.BranchId!.Value)
+            .ApplyWhereIf(!string.IsNullOrWhiteSpace(filter.Role), e => e.Role.ToString() == filter.Role)
+            .ApplyWhereIf(filter.IsActive.HasValue, e => e.IsActive == filter.IsActive!.Value);
 
-        if (!string.IsNullOrWhiteSpace(filter.Search))
-        {
-            var q = filter.Search.ToLower();
-            query = query.Where(x => x.FullName.ToLower().Contains(q) || (x.Phone != null && x.Phone.Contains(q)));
-        }
-        if (filter.BranchId.HasValue)
-            query = query.Where(x => x.BranchId == filter.BranchId.Value);
-        if (!string.IsNullOrWhiteSpace(filter.Role))
-            query = query.Where(x => x.Role.ToString() == filter.Role);
-        if (filter.IsActive.HasValue)
-            query = query.Where(x => x.IsActive == filter.IsActive.Value);
-
-        var totalCount = await query.CountAsync();
-        var items = await query
-            .OrderByDescending(x => x.CreatedAt)
-            .Skip((filter.PageNumber - 1) * filter.PageSize)
-            .Take(filter.PageSize)
-            .ToListAsync();
-
-        return new PagedResult<OwnerEmployeeDto>
-        {
-            Items = _mapper.Map<List<OwnerEmployeeDto>>(items),
-            TotalCount = totalCount,
-            PageNumber = filter.PageNumber,
-            PageSize = filter.PageSize
-        };
+        return await query.ToPagedResultAsync<Employee, OwnerEmployeeDto>(filter, _mapper);
     }
 
     public async Task<IEnumerable<OwnerEmployeeDto>> GetAllAsync()

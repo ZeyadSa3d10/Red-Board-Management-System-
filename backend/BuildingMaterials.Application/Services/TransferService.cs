@@ -6,6 +6,8 @@ using BuildingMaterials.Domain.Entities;
 using BuildingMaterials.Domain.Enums;
 using BuildingMaterials.Domain.Exceptions;
 using BuildingMaterials.Infrastructure.Data;
+using BuildingMaterials.Application.Extensions;
+using BuildingMaterials.Infrastructure.Extensions;
 using Microsoft.EntityFrameworkCore;
 
 namespace BuildingMaterials.Application.Services;
@@ -111,54 +113,14 @@ public class TransferService : ITransferService
             .Include(x => x.DestinationBranch)
             .Include(x => x.CreatedBy)
             .Include(x => x.Items).ThenInclude(x => x.Product)
-            .AsQueryable();
+            .AsQueryable()
+            .ApplySearch(filter.Search, t => t.TransferNumber)
+            .ApplyWhereIf(filter.Status.HasValue, t => t.Status == filter.Status!.Value)
+            .ApplyWhereIf(filter.BranchId.HasValue, t => t.SourceBranchId == filter.BranchId!.Value || t.DestinationBranchId == filter.BranchId!.Value)
+            .ApplyWhereIf(filter.DateFrom.HasValue, t => t.CreatedAt >= filter.DateFrom!.Value)
+            .ApplyWhereIf(filter.DateTo.HasValue, t => t.CreatedAt <= filter.DateTo!.Value);
 
-        if (!string.IsNullOrWhiteSpace(filter.Search))
-        {
-            var q = filter.Search.ToLower();
-            query = query.Where(x => x.TransferNumber.ToLower().Contains(q));
-        }
-        if (filter.Status.HasValue)
-            query = query.Where(x => x.Status == filter.Status.Value);
-        if (filter.BranchId.HasValue)
-            query = query.Where(x => x.SourceBranchId == filter.BranchId.Value || x.DestinationBranchId == filter.BranchId.Value);
-        if (filter.DateFrom.HasValue)
-            query = query.Where(x => x.CreatedAt >= filter.DateFrom.Value);
-        if (filter.DateTo.HasValue)
-            query = query.Where(x => x.CreatedAt <= filter.DateTo.Value);
-
-        var totalCount = await query.CountAsync();
-        var items = await query
-            .OrderByDescending(x => x.CreatedAt)
-            .Skip((filter.PageNumber - 1) * filter.PageSize)
-            .Take(filter.PageSize)
-            .ToListAsync();
-
-        return new PagedResult<TransferDto>
-        {
-            Items = items.Select(t => new TransferDto
-            {
-                Id = t.Id,
-                TransferNumber = t.TransferNumber,
-                SourceBranchId = t.SourceBranchId,
-                SourceBranchName = t.SourceBranch.Name,
-                DestinationBranchId = t.DestinationBranchId,
-                DestinationBranchName = t.DestinationBranch.Name,
-                Status = t.Status.ToString(),
-                Notes = t.Notes,
-                CreatedAt = t.CreatedAt,
-                CreatedBy = t.CreatedBy.FullName,
-                Items = t.Items.Select(i => new TransferItemResponseDto
-                {
-                    ProductId = i.ProductId,
-                    ProductName = i.Product.Name,
-                    Quantity = i.Quantity
-                }).ToList()
-            }).ToList(),
-            TotalCount = totalCount,
-            PageNumber = filter.PageNumber,
-            PageSize = filter.PageSize
-        };
+        return await query.ToPagedResultAsync<InventoryTransfer, TransferDto>(filter, _mapper);
     }
 
     public async Task<IEnumerable<TransferDto>> GetAllAsync()

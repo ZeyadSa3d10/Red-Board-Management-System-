@@ -1,3 +1,4 @@
+using BuildingMaterials.Application.DTOs;
 using BuildingMaterials.Application.DTOs.Invoice;
 using BuildingMaterials.Application.DTOs.Report;
 
@@ -20,4 +21,6 @@ public interface IReportService
     Task<IEnumerable<DeferredCollectionDto>> GetDeferredCollectionsAsync(DateTime dateFrom, DateTime dateTo);
     Task<SalarySummaryDto> GetSalarySummaryDetailedAsync(int? month, int? year, int? branchId);
     Task<LedgerResponseDto> GetLedgerAsync(DateTime? dateFrom, DateTime? dateTo, int? branchId);
+    Task<PagedResult<LedgerEntryDto>> GetLedgerPagedAsync(LedgerFilterDto filter);
+    Task<SalesStatsDto> GetSalesStatsAsync(DateTime? dateFrom, DateTime? dateTo, int? branchId, int? type);
 }

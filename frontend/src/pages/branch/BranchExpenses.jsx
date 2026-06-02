@@ -1,10 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNotifications } from '../../context/NotificationContext';
 import api from '../../api/realApi';
-import useFilters from '../../hooks/useFilters';
+import DataTable from '../../components/common/DataTable';
 import FilterBar from '../../components/common/FilterBar';
 import FilterGroup from '../../components/common/FilterGroup';
+import FilterSearch from '../../components/common/FilterSearch';
+import DateRangePicker from '../../components/common/DateRangePicker';
+import useFilters from '../../hooks/useFilters';
 import { formatCurrency, formatDate, getToday } from '../../utils/formatters';
 import { BsPlus, BsTrash, BsSave } from 'react-icons/bs';
 
@@ -12,10 +15,15 @@ const BranchExpenses = () => {
   const { user } = useAuth();
   const { addNotification } = useNotifications();
   const [expenses, setExpenses] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [branches, setBranches] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+
   const defaultBranch = user?.role !== 'owner' ? user?.branchId || '' : '';
-  const { filters, setFilter, resetFilters, activeCount } = useFilters({ branchId: defaultBranch, dateFrom: '', dateTo: '' });
+  const { filters, setFilter, resetFilters, activeCount } = useFilters({
+    search: '', branchId: defaultBranch, dateFrom: getToday(), dateTo: getToday(),
+  }, { debounceMs: 400 });
 
   const [showForm, setShowForm] = useState(false);
   const [description, setDescription] = useState('');
@@ -25,59 +33,35 @@ const BranchExpenses = () => {
   const [formNotes, setFormNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const [filterInputs, setFilterInputs] = useState({ dateFrom: '', dateTo: '' });
-  const [quickFilter, setQuickFilter] = useState('');
-
-  const load = async (appliedFilters = {}) => {
+  const load = useCallback(async () => {
     setLoading(true);
-    const params = {};
-    const activeBranch = user?.role !== 'owner' ? (user?.branchId || '') : (appliedFilters.branchId || '');
-    if (activeBranch) params.branchId = activeBranch;
-    if (appliedFilters.dateFrom) params.dateFrom = appliedFilters.dateFrom;
-    if (appliedFilters.dateTo) params.dateTo = appliedFilters.dateTo;
-    const [data, br] = await Promise.all([api.getExpenses(params), api.getBranches()]);
-    setExpenses(Array.isArray(data) ? data : (data?.items || []));
-    setBranches(br || []);
+    try {
+      const params = {};
+      if (filters.branchId) params.branchId = filters.branchId;
+      if (filters.search) params.search = filters.search;
+      if (filters.dateFrom) params.dateFrom = filters.dateFrom;
+      if (filters.dateTo) params.dateTo = filters.dateTo;
+      params.page = page;
+      params.pageSize = 15;
+
+      const data = await api.getExpenses(params);
+      const items = Array.isArray(data) ? data : (data?.items || []);
+      setExpenses(items);
+      setTotalCount(Array.isArray(data) ? items.length : (data?.totalCount || items.length));
+    } catch { setExpenses([]); setTotalCount(0); }
     setLoading(false);
-  };
+  }, [filters, page]);
 
-  const handleApplyFilter = () => {
-    load({ dateFrom: filterInputs.dateFrom, dateTo: filterInputs.dateTo, branchId: filters.branchId });
-  };
+  useEffect(() => { load(); }, [filters, page]);
 
-  const handleQuickFilter = (type) => {
-    setQuickFilter(type);
-    const today = new Date();
-    const fmt = d => d.toLocaleDateString('en-CA', { timeZone: 'Africa/Cairo' });
-    let dateFrom = '', dateTo = '';
-    if (type === 'today') {
-      dateFrom = dateTo = fmt(today);
-    } else if (type === 'month') {
-      dateFrom = fmt(new Date(today.getFullYear(), today.getMonth(), 1));
-      dateTo = fmt(today);
-    } else if (type === 'year') {
-      dateFrom = fmt(new Date(today.getFullYear(), 0, 1));
-      dateTo = fmt(today);
-    }
-    setFilterInputs({ dateFrom, dateTo });
-    if (type !== 'custom') {
-      load({ dateFrom, dateTo, branchId: filters.branchId });
-    }
-  };
+  useEffect(() => {
+    api.getBranches().then(br => setBranches(br || [])).catch(() => {});
+  }, []);
 
   const handleReset = () => {
     resetFilters();
-    setQuickFilter('');
-    setFilterInputs({ dateFrom: '', dateTo: '' });
-    load();
+    setPage(1);
   };
-
-  useEffect(() => {
-    const today = getToday();
-    setQuickFilter('today');
-    setFilterInputs({ dateFrom: today, dateTo: today });
-    load({ dateFrom: today, dateTo: today });
-  }, [user?.branchId]);
 
   const handleSave = async () => {
     if (!description || !amount || !formBranch) {
@@ -100,12 +84,24 @@ const BranchExpenses = () => {
       await api.deleteExpense(id);
       addNotification('تم حذف المصروف', 'success');
       load();
-    } catch {
-      addNotification('فشل حذف المصروف', 'danger');
-    }
+    } catch { addNotification('فشل حذف المصروف', 'danger'); }
   };
 
   const totalAmount = expenses.reduce((s, e) => s + (e.amount || 0), 0);
+
+  const columns = [
+    { key: 'expenseDate', header: 'التاريخ', render: (v) => formatDate(v) },
+    { key: 'description', header: 'البيان', render: (v) => <span style={{ fontWeight: 500 }}>{v}</span> },
+    { key: 'branchName', header: 'الفرع' },
+    { key: 'amount', header: 'المبلغ', render: (v) => <span className="mono" style={{ color: 'var(--color-danger)' }}>{formatCurrency(v)}</span> },
+    { key: 'notes', header: 'ملاحظات', render: (v) => <span style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>{v || '-'}</span> },
+    { key: 'createdBy', header: 'أضيف بواسطة', render: (v) => <span style={{ fontSize: '0.85rem' }}>{v}</span> },
+    { key: 'actions', header: '', sortable: false, render: (_, row) => (
+      <button className="btn-custom btn-custom-danger btn-custom-sm" onClick={() => handleDelete(row.id)} title="حذف">
+        <BsTrash />
+      </button>
+    )},
+  ];
 
   return (
     <div>
@@ -138,8 +134,7 @@ const BranchExpenses = () => {
             <div>
               <label style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>الفرع *</label>
               {user?.role === 'owner' ? (
-                <select className="form-control-custom" value={formBranch}
-                  onChange={e => setFormBranch(e.target.value)}>
+                <select className="form-control-custom" value={formBranch} onChange={e => setFormBranch(e.target.value)}>
                   <option value="">اختر الفرع</option>
                   {branches.filter(b => !b.isAdmin).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                 </select>
@@ -152,8 +147,7 @@ const BranchExpenses = () => {
           </div>
           <div style={{ marginBottom: 16 }}>
             <label style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>ملاحظات</label>
-            <textarea className="form-control-custom" rows="2" value={formNotes}
-              onChange={e => setFormNotes(e.target.value)} />
+            <textarea className="form-control-custom" rows="2" value={formNotes} onChange={e => setFormNotes(e.target.value)} />
           </div>
           <button className="btn-custom btn-custom-primary" onClick={handleSave} disabled={saving}>
             <BsSave size={18} /> {saving ? 'جاري الحفظ...' : 'حفظ'}
@@ -161,50 +155,23 @@ const BranchExpenses = () => {
         </div>
       )}
 
-      <FilterBar variant="panel" onReset={handleReset} activeCount={activeCount || !!quickFilter}>
+      <FilterBar variant="panel" onReset={handleReset} activeCount={activeCount} loading={loading} onApply={() => setPage(1)}>
+        <FilterSearch value={filters.search} onChange={v => { setFilter('search', v); setPage(1); }} placeholder="بحث بوصف المصروف..." />
         {user?.role === 'owner' && (
           <FilterGroup label="الفرع">
             <select className="form-control-custom" value={filters.branchId}
-              onChange={e => setFilter('branchId', e.target.value)}>
+              onChange={e => { setFilter('branchId', e.target.value); setPage(1); }}>
               <option value="">كل الفروع</option>
               {branches.filter(b => !b.isAdmin).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </FilterGroup>
         )}
-        <FilterGroup label="فترة">
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {[
-              { key: 'today', label: 'اليوم' },
-              { key: 'month', label: 'هذا الشهر' },
-              { key: 'year', label: 'هذا العام' },
-              { key: 'custom', label: 'مخصص' },
-            ].map(btn => (
-              <button key={btn.key}
-                className={`btn-custom btn-custom-sm ${quickFilter === btn.key ? 'btn-custom-primary' : 'btn-custom-outline'}`}
-                onClick={() => handleQuickFilter(btn.key)}>
-                {btn.label}
-              </button>
-            ))}
-          </div>
-        </FilterGroup>
-        {quickFilter === 'custom' && (
-          <>
-            <FilterGroup label="من تاريخ">
-              <input className="form-control-custom" type="date" value={filterInputs.dateFrom}
-                onChange={e => setFilterInputs(prev => ({ ...prev, dateFrom: e.target.value }))} />
-            </FilterGroup>
-            <FilterGroup label="إلى تاريخ">
-              <input className="form-control-custom" type="date" value={filterInputs.dateTo}
-                onChange={e => setFilterInputs(prev => ({ ...prev, dateTo: e.target.value }))} />
-            </FilterGroup>
-            <button className="btn-custom btn-custom-primary" onClick={handleApplyFilter} style={{ alignSelf: 'flex-end' }}>
-              تطبيق
-            </button>
-          </>
-        )}
+        <DateRangePicker
+          value={{ dateFrom: filters.dateFrom, dateTo: filters.dateTo }}
+          onChange={({ dateFrom, dateTo }) => { setFilter('dateFrom', dateFrom); setFilter('dateTo', dateTo); setPage(1); }}
+        />
       </FilterBar>
 
-      {/* Summary */}
       <div style={{ display: 'flex', gap: 16, marginBottom: 20 }}>
         <div className="card" style={{ padding: '16px 24px', flex: 1, minWidth: 200 }}>
           <div style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>إجمالي المصروفات</div>
@@ -214,50 +181,20 @@ const BranchExpenses = () => {
         </div>
         <div className="card" style={{ padding: '16px 24px', flex: 1, minWidth: 200 }}>
           <div style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>عدد المعاملات</div>
-          <div style={{ fontSize: '1.3rem', fontWeight: 700 }}>{expenses.length}</div>
+          <div style={{ fontSize: '1.3rem', fontWeight: 700 }}>{totalCount}</div>
         </div>
       </div>
 
-      {/* Table */}
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        <div style={{ overflowX: 'auto' }}>
-          <table className="table-custom" style={{ margin: 0 }}>
-            <thead>
-              <tr>
-                <th>التاريخ</th>
-                <th>البيان</th>
-                <th>الفرع</th>
-                <th>المبلغ</th>
-                <th>ملاحظات</th>
-                <th>أضيف بواسطة</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan="7" style={{ textAlign: 'center', padding: 24 }}>جاري التحميل...</td></tr>
-              ) : expenses.length === 0 ? (
-                <tr><td colSpan="7" style={{ textAlign: 'center', padding: 24 }}>لا توجد مصروفات</td></tr>
-              ) : expenses.map(exp => (
-                <tr key={exp.id}>
-                  <td>{formatDate(exp.expenseDate)}</td>
-                  <td style={{ fontWeight: 500 }}>{exp.description}</td>
-                  <td>{exp.branchName}</td>
-                  <td className="mono" style={{ color: 'var(--color-danger)' }}>{formatCurrency(exp.amount)}</td>
-                  <td style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>{exp.notes || '-'}</td>
-                  <td style={{ fontSize: '0.85rem' }}>{exp.createdBy}</td>
-                  <td>
-                    <button className="btn-custom btn-custom-danger btn-custom-sm"
-                      onClick={() => handleDelete(exp.id)} title="حذف">
-                      <BsTrash />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <DataTable
+        columns={columns}
+        data={expenses}
+        loading={loading}
+        serverSide
+        totalCount={totalCount}
+        page={page}
+        onPageChange={setPage}
+        pageSize={15}
+      />
     </div>
   );
 };

@@ -12,4 +12,5 @@ public class DailyRevenueDto
     public decimal CashAmount { get; set; }
     public decimal VodafoneCashAmount { get; set; }
     public decimal CheckAmount { get; set; }
+    public decimal BankTransferAmount { get; set; }
 }

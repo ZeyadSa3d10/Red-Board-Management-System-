@@ -1,7 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import api from '../../api/realApi';
 import DataTable from '../../components/common/DataTable';
 import Modal from '../../components/common/Modal';
+import FilterBar from '../../components/common/FilterBar';
+import FilterSearch from '../../components/common/FilterSearch';
+import useFilters from '../../hooks/useFilters';
 import Badge from '../../components/common/Badge';
 import { formatCurrency, formatDate, formatRole } from '../../utils/formatters';
 import { useNotifications } from '../../context/NotificationContext';
@@ -10,9 +13,11 @@ import { BsPlus, BsCashCoin, BsKey, BsToggleOn, BsToggleOff, BsTrash } from 'rea
 const OwnerEmployees = () => {
   const { addNotification } = useNotifications();
   const [employees, setEmployees] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [salaryPayments, setSalaryPayments] = useState([]);
   const [branches, setBranches] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
   const [selectedEmp, setSelectedEmp] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [showPay, setShowPay] = useState(false);
@@ -22,19 +27,29 @@ const OwnerEmployees = () => {
   const [payAmount, setPayAmount] = useState('');
   const [form, setForm] = useState({ name: '', phone: '', password: '', role: 'staff', branchId: '', salary: '', nationalId: '', joinDate: '' });
 
-  const load = async () => {
-    setLoading(true);
-    const [e, sp, b] = await Promise.all([api.getEmployees(), api.getSalaryPayments(), api.getBranches()]);
-    setEmployees(e);
-    setSalaryPayments(sp);
-    setBranches(b);
-    setLoading(false);
-  };
+  const { filters, setFilter, resetFilters, activeCount } = useFilters({ search: '' }, { debounceMs: 300 });
 
-  useEffect(() => { load(); }, []);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await api.getEmployeesFiltered({ search: filters.search, page, pageSize: 15 });
+      const items = result?.items || result || [];
+      setEmployees(items);
+      setTotalCount(result?.totalCount || items.length);
+    } catch { setEmployees([]); setTotalCount(0); }
+    setLoading(false);
+  }, [filters.search, page]);
+
+  useEffect(() => { load(); }, [filters.search, page]);
+
+  useEffect(() => {
+    Promise.all([
+      api.getSalaryPayments().catch(() => []),
+      api.getBranches().catch(() => []),
+    ]).then(([sp, b]) => { setSalaryPayments(sp); setBranches(b); });
+  }, []);
 
   const isSalaryPaid = (employeeId, month) => {
-    const currentMonth = new Date().toISOString().slice(0, 7);
     return salaryPayments.some(sp => sp.employeeId === employeeId && sp.month === month && sp.status === 'paid');
   };
 
@@ -73,6 +88,39 @@ const OwnerEmployees = () => {
     setResetPwd('');
   };
 
+  const columns = [
+    { key: 'fullName', header: 'الاسم', render: (v) => <span style={{ fontWeight: 500 }}>{v}</span> },
+    { key: 'role', header: 'الدور', render: (v, row) => {
+      const roleLower = v?.toLowerCase?.();
+      return <Badge label={formatRole(roleLower)} color={roleLower === 'owner' ? 'warning' : roleLower === 'accountant' ? 'info' : 'secondary'} />;
+    }},
+    { key: 'branchName', header: 'الفرع' },
+    { key: 'salary', header: 'الراتب', render: (v) => v ? <span className="mono">{formatCurrency(v)}</span> : '-' },
+    { key: 'phone', header: 'الهاتف' },
+    { key: 'isActive', header: 'الحالة', render: (v) => <Badge label={v ? 'نشط' : 'غير نشط'} color={v ? 'success' : 'danger'} /> },
+    {
+      key: 'actions', header: '', width: 200, sortable: false,
+      render: (_, row) => (
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button className="btn-custom btn-custom-outline" style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+            onClick={(e) => { e.stopPropagation(); setSelectedEmp(row); setResetPwd(''); setShowResetPwd(true); }}>
+            <BsKey size={12} /> كلمة السر
+          </button>
+          {row.role?.toLowerCase() !== 'owner' && (
+            <button className="btn-custom btn-custom-outline" style={{ padding: '4px 8px', fontSize: '0.75rem', color: row.isActive ? 'var(--color-warning)' : 'var(--color-success)' }}
+              onClick={async (e) => { e.stopPropagation(); await api.toggleEmployeeActive(row.id); load(); }}>
+              {row.isActive ? <><BsToggleOff size={12} /> تعطيل</> : <><BsToggleOn size={12} /> تفعيل</>}
+            </button>
+          )}
+          <button className="btn-custom btn-custom-outline" style={{ padding: '4px 8px', fontSize: '0.75rem', color: 'var(--color-danger)' }}
+            onClick={(e) => { e.stopPropagation(); setSelectedEmp(row); setShowDeleteConfirm(true); }}>
+            <BsTrash size={12} /> حذف
+          </button>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div>
       <div className="page-header">
@@ -82,57 +130,30 @@ const OwnerEmployees = () => {
         </button>
       </div>
 
-      {loading ? (
-        <div className="loading-container"><div className="spinner-border" /></div>
-      ) : (
-        <DataTable
-          columns={[
-            { key: 'fullName', header: 'الاسم', render: (v) => <span style={{ fontWeight: 500 }}>{v}</span> },
-            { key: 'role', header: 'الدور', render: (v, row) => {
-              const roleLower = v?.toLowerCase?.();
-              return <Badge label={formatRole(roleLower)} color={roleLower === 'owner' ? 'warning' : roleLower === 'accountant' ? 'info' : 'secondary'} />;
-            }},
-            { key: 'branchName', header: 'الفرع' },
-            { key: 'salary', header: 'الراتب', render: (v) => v ? <span className="mono">{formatCurrency(v)}</span> : '-' },
-            { key: 'phone', header: 'الهاتف' },
-            { key: 'isActive', header: 'الحالة', render: (v) => <Badge label={v ? 'نشط' : 'غير نشط'} color={v ? 'success' : 'danger'} /> },
-            {
-              key: 'actions', header: '', width: 200,
-              render: (_, row) => (
-                <div style={{ display: 'flex', gap: 4 }}>
-                  <button className="btn-custom btn-custom-outline" style={{ padding: '4px 8px', fontSize: '0.75rem' }}
-                    onClick={(e) => { e.stopPropagation(); setSelectedEmp(row); setResetPwd(''); setShowResetPwd(true); }}>
-                    <BsKey size={12} /> كلمة السر
-                  </button>
-                  {row.role?.toLowerCase() !== 'owner' && (
-                    <button className="btn-custom btn-custom-outline" style={{ padding: '4px 8px', fontSize: '0.75rem', color: row.isActive ? 'var(--color-warning)' : 'var(--color-success)' }}
-                      onClick={async (e) => { e.stopPropagation(); await api.toggleEmployeeActive(row.id); load(); }}>
-                      {row.isActive ? <><BsToggleOff size={12} /> تعطيل</> : <><BsToggleOn size={12} /> تفعيل</>}
-                    </button>
-                  )}
-                  <button className="btn-custom btn-custom-outline" style={{ padding: '4px 8px', fontSize: '0.75rem', color: 'var(--color-danger)' }}
-                    onClick={(e) => { e.stopPropagation(); setSelectedEmp(row); setShowDeleteConfirm(true); }}>
-                    <BsTrash size={12} /> حذف
-                  </button>
-                </div>
-              ),
-            },
-          ]}
-          data={employees}
-          loading={loading}
-          searchable
-          onRowClick={(emp) => {
-            if (emp.salary) {
-              setSelectedEmp(emp);
-              const currentMonth = new Date().toISOString().slice(0, 7);
-              setPayAmount(emp.salary.toString());
-              if (!isSalaryPaid(emp.id, currentMonth)) {
-                setShowPay(true);
-              }
+      <FilterBar variant="simple" onReset={() => { resetFilters(); setPage(1); }} activeCount={activeCount} loading={loading}>
+        <FilterSearch value={filters.search} onChange={v => { setFilter('search', v); setPage(1); }} placeholder="بحث باسم الموظف..." />
+      </FilterBar>
+
+      <DataTable
+        columns={columns}
+        data={employees}
+        loading={loading}
+        serverSide
+        totalCount={totalCount}
+        page={page}
+        onPageChange={setPage}
+        pageSize={15}
+        onRowClick={(emp) => {
+          if (emp.salary) {
+            setSelectedEmp(emp);
+            const currentMonth = new Date().toISOString().slice(0, 7);
+            setPayAmount(emp.salary.toString());
+            if (!isSalaryPaid(emp.id, currentMonth)) {
+              setShowPay(true);
             }
-          }}
-        />
-      )}
+          }
+        }}
+      />
 
       {selectedEmp && (
         <Modal show={showPay} onClose={() => setShowPay(false)} title={`صرف راتب ${selectedEmp.name}`}>
@@ -142,8 +163,7 @@ const OwnerEmployees = () => {
           </div>
           <div style={{ marginBottom: 12 }}>
             <label style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>الراتب</label>
-            <input className="form-control-custom" type="number" min="1" value={payAmount}
-              onChange={e => setPayAmount(e.target.value)} />
+            <input className="form-control-custom" type="number" min="1" value={payAmount} onChange={e => setPayAmount(e.target.value)} />
           </div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
             <button className="btn-custom btn-custom-outline" onClick={() => setShowPay(false)}>إلغاء</button>
@@ -158,9 +178,7 @@ const OwnerEmployees = () => {
         <Modal show={showResetPwd} onClose={() => setShowResetPwd(false)} title={`تغيير كلمة المرور - ${selectedEmp.name}`}>
           <div style={{ marginBottom: 12 }}>
             <label style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>كلمة المرور الجديدة</label>
-            <input className="form-control-custom" type="password" value={resetPwd}
-              onChange={e => setResetPwd(e.target.value)}
-              placeholder="أدخل كلمة المرور الجديدة" />
+            <input className="form-control-custom" type="password" value={resetPwd} onChange={e => setResetPwd(e.target.value)} placeholder="أدخل كلمة المرور الجديدة" />
           </div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
             <button className="btn-custom btn-custom-outline" onClick={() => setShowResetPwd(false)}>إلغاء</button>
@@ -178,11 +196,7 @@ const OwnerEmployees = () => {
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
             <button className="btn-custom btn-custom-outline" onClick={() => setShowDeleteConfirm(false)}>إلغاء</button>
             <button className="btn-custom" style={{ background: 'var(--color-danger)', color: '#fff', border: 'none' }}
-              onClick={async () => {
-                await api.deleteEmployee(selectedEmp.id);
-                setShowDeleteConfirm(false);
-                load();
-              }}>تأكيد الحذف</button>
+              onClick={async () => { await api.deleteEmployee(selectedEmp.id); setShowDeleteConfirm(false); load(); }}>تأكيد الحذف</button>
           </div>
         </Modal>
       )}
@@ -199,9 +213,8 @@ const OwnerEmployees = () => {
           </div>
           <div>
             <label style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>كلمة المرور *</label>
-            <input className="form-control-custom" type="password" value={form.password}
-              onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
-              placeholder="كلمة المرور الافتراضية" />
+            <input className="form-control-custom" type="password" value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))} placeholder="6 أحرف على الأقل" />
+            <small style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>يجب أن تكون 6 أحرف على الأقل</small>
           </div>
           <div>
             <label style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>الدور</label>
@@ -220,8 +233,7 @@ const OwnerEmployees = () => {
           </div>
           <div>
             <label style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>الراتب</label>
-            <input className="form-control-custom" type="number" min="1" value={form.salary}
-              onChange={e => setForm(p => ({ ...p, salary: e.target.value }))} />
+            <input className="form-control-custom" type="number" min="1" value={form.salary} onChange={e => setForm(p => ({ ...p, salary: e.target.value }))} />
           </div>
           <div>
             <label style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>الرقم القومي</label>
@@ -229,8 +241,7 @@ const OwnerEmployees = () => {
           </div>
           <div>
             <label style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>تاريخ التعيين</label>
-            <input className="form-control-custom" type="date" value={form.joinDate}
-              onChange={e => setForm(p => ({ ...p, joinDate: e.target.value }))} />
+            <input className="form-control-custom" type="date" value={form.joinDate} onChange={e => setForm(p => ({ ...p, joinDate: e.target.value }))} />
           </div>
         </div>
         <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end' }}>

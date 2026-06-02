@@ -7,6 +7,8 @@ using BuildingMaterials.Domain.Entities;
 using BuildingMaterials.Domain.Enums;
 using BuildingMaterials.Domain.Exceptions;
 using BuildingMaterials.Infrastructure.Data;
+using BuildingMaterials.Application.Extensions;
+using BuildingMaterials.Infrastructure.Extensions;
 using Microsoft.EntityFrameworkCore;
 
 namespace BuildingMaterials.Application.Services;
@@ -133,41 +135,20 @@ public class PurchaseService : IPurchaseService
             .Include(x => x.AddedBy)
             .Include(x => x.Items).ThenInclude(x => x.Product)
             .Include(x => x.Payments)
-            .AsQueryable();
+            .AsQueryable()
+            .ApplySearch(filter.Search, p => p.InvoiceNumber)
+            .ApplyWhereIf(filter.SupplierId.HasValue, p => p.SupplierId == filter.SupplierId!.Value)
+            .ApplyWhereIf(filter.DateFrom.HasValue, p => p.InvoiceDate >= filter.DateFrom!.Value)
+            .ApplyWhereIf(filter.DateTo.HasValue, p => p.InvoiceDate <= filter.DateTo!.Value);
 
-        if (!string.IsNullOrWhiteSpace(filter.Search))
-        {
-            var q = filter.Search.ToLower();
-            query = query.Where(x => x.InvoiceNumber.ToLower().Contains(q));
-        }
-        if (filter.SupplierId.HasValue)
-            query = query.Where(x => x.SupplierId == filter.SupplierId.Value);
         if (!string.IsNullOrWhiteSpace(filter.Status))
         {
-            if (filter.Status == "paid")
-                query = query.Where(x => x.RemainingAmount <= 0);
-            else if (filter.Status == "unpaid")
-                query = query.Where(x => x.RemainingAmount > 0);
+            query = filter.Status == "paid"
+                ? query.Where(p => p.RemainingAmount <= 0)
+                : query.Where(p => p.RemainingAmount > 0);
         }
-        if (filter.DateFrom.HasValue)
-            query = query.Where(x => x.InvoiceDate >= filter.DateFrom.Value);
-        if (filter.DateTo.HasValue)
-            query = query.Where(x => x.InvoiceDate <= filter.DateTo.Value);
 
-        var totalCount = await query.CountAsync();
-        var items = await query
-            .OrderByDescending(x => x.CreatedAt)
-            .Skip((filter.PageNumber - 1) * filter.PageSize)
-            .Take(filter.PageSize)
-            .ToListAsync();
-
-        return new PagedResult<PurchaseInvoiceResponseDto>
-        {
-            Items = _mapper.Map<List<PurchaseInvoiceResponseDto>>(items),
-            TotalCount = totalCount,
-            PageNumber = filter.PageNumber,
-            PageSize = filter.PageSize
-        };
+        return await query.ToPagedResultAsync<PurchaseInvoice, PurchaseInvoiceResponseDto>(filter, _mapper);
     }
 
     public async Task<IEnumerable<PurchaseInvoiceResponseDto>> GetBySupplierIdAsync(int supplierId)

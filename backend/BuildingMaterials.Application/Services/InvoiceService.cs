@@ -6,6 +6,8 @@ using BuildingMaterials.Domain.Entities;
 using BuildingMaterials.Domain.Enums;
 using BuildingMaterials.Domain.Exceptions;
 using BuildingMaterials.Infrastructure.Data;
+using BuildingMaterials.Application.Extensions;
+using BuildingMaterials.Infrastructure.Extensions;
 using Microsoft.EntityFrameworkCore;
 
 namespace BuildingMaterials.Application.Services;
@@ -405,38 +407,32 @@ public class InvoiceService : IInvoiceService
             .Include(x => x.RelatedInvoice)
                 .ThenInclude(x => x.DeferredInvoice)
             .Where(x => !x.IsCancelled)
-            .AsQueryable();
+            .AsQueryable()
+            .ApplyWhereIf(filter.BranchId.HasValue, x => x.BranchId == filter.BranchId!.Value)
+            .ApplyWhereIf(filter.Type.HasValue, x => x.Type == (InvoiceType)filter.Type!.Value)
+            .ApplyWhereIf(filter.DateFrom.HasValue, x => x.CreatedAt >= filter.DateFrom!.Value)
+            .ApplyWhereIf(filter.DateTo.HasValue, x => x.CreatedAt <= filter.DateTo!.Value)
+            .ApplyWhereIf(filter.ClientId.HasValue, x => x.ClientId == filter.ClientId!.Value)
+            .ApplySearch(filter.Search, x => x.InvoiceNumber, x => x.WalkInClientName, x => x.ProjectName);
 
-        if (filter.BranchId.HasValue)
-            query = query.Where(x => x.BranchId == filter.BranchId.Value);
-        if (filter.Type.HasValue)
-            query = query.Where(x => x.Type == (InvoiceType)filter.Type.Value);
-        if (filter.DateFrom.HasValue)
-            query = query.Where(x => x.CreatedAt >= filter.DateFrom.Value);
-        if (filter.DateTo.HasValue)
-            query = query.Where(x => x.CreatedAt <= filter.DateTo.Value);
-        if (filter.ClientId.HasValue)
-            query = query.Where(x => x.ClientId == filter.ClientId.Value);
+        if (!string.IsNullOrEmpty(filter.Types))
+        {
+            var typeValues = filter.Types.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(s => { int.TryParse(s.Trim(), out var v); return v; })
+                .Where(v => v > 0)
+                .Select(v => (InvoiceType)v)
+                .ToList();
+            if (typeValues.Count > 0)
+                query = query.Where(x => typeValues.Contains(x.Type));
+        }
+
         if (filter.RelatedInvoiceId.HasValue)
         {
             query = query.Where(x => x.RelatedInvoiceId == filter.RelatedInvoiceId.Value);
             query = query.Include(x => x.Items).ThenInclude(x => x.Product);
         }
 
-        var totalCount = await query.CountAsync();
-        var items = await query
-            .OrderByDescending(x => x.CreatedAt)
-            .Skip((filter.PageNumber - 1) * filter.PageSize)
-            .Take(filter.PageSize)
-            .ToListAsync();
-
-        return new PagedResult<InvoiceListDto>
-        {
-            Items = _mapper.Map<List<InvoiceListDto>>(items),
-            TotalCount = totalCount,
-            PageNumber = filter.PageNumber,
-            PageSize = filter.PageSize
-        };
+        return await query.ToPagedResultAsync<Invoice, InvoiceListDto>(filter, _mapper);
     }
 
     public async Task<InvoiceResponseDto> GetByIdAsync(int id)
@@ -506,7 +502,8 @@ public class InvoiceService : IInvoiceService
             InvoicesCount = saleInvoices.Count,
             CashAmount = saleInvoices.Where(x => x.PaymentMethod == PaymentMethod.Cash).Sum(x => x.TotalAmount),
             VodafoneCashAmount = saleInvoices.Where(x => x.PaymentMethod == PaymentMethod.VodafoneCash).Sum(x => x.TotalAmount),
-            CheckAmount = saleInvoices.Where(x => x.PaymentMethod == PaymentMethod.Check).Sum(x => x.TotalAmount)
+            CheckAmount = saleInvoices.Where(x => x.PaymentMethod == PaymentMethod.Check).Sum(x => x.TotalAmount),
+            BankTransferAmount = saleInvoices.Where(x => x.PaymentMethod == PaymentMethod.BankTransfer).Sum(x => x.TotalAmount)
         };
     }
 
@@ -612,7 +609,8 @@ public class InvoiceService : IInvoiceService
             InvoicesCount = saleInvoices.Count,
             CashAmount = saleInvoices.Where(x => x.PaymentMethod == PaymentMethod.Cash).Sum(x => x.TotalAmount),
             VodafoneCashAmount = saleInvoices.Where(x => x.PaymentMethod == PaymentMethod.VodafoneCash).Sum(x => x.TotalAmount),
-            CheckAmount = saleInvoices.Where(x => x.PaymentMethod == PaymentMethod.Check).Sum(x => x.TotalAmount)
+            CheckAmount = saleInvoices.Where(x => x.PaymentMethod == PaymentMethod.Check).Sum(x => x.TotalAmount),
+            BankTransferAmount = saleInvoices.Where(x => x.PaymentMethod == PaymentMethod.BankTransfer).Sum(x => x.TotalAmount)
         };
     }
 

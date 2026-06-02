@@ -6,6 +6,8 @@ using BuildingMaterials.Domain.Entities;
 using BuildingMaterials.Domain.Enums;
 using BuildingMaterials.Domain.Exceptions;
 using BuildingMaterials.Infrastructure.Data;
+using BuildingMaterials.Application.Extensions;
+using BuildingMaterials.Infrastructure.Extensions;
 using Microsoft.EntityFrameworkCore;
 
 namespace BuildingMaterials.Application.Services;
@@ -23,34 +25,13 @@ public class ClientService : IClientService
 
     public async Task<PagedResult<ClientDto>> GetFilteredAsync(ClientFilterDto filter)
     {
-        var query = _context.Clients.AsQueryable();
+        var query = _context.Clients.AsQueryable()
+            .ApplySearch(filter.Search, c => c.Name, c => c.Phone)
+            .ApplyWhereIf(filter.HasDeferredOnly == true, c => c.TotalDeferred > 0)
+            .ApplyWhereIf(filter.DateFrom.HasValue, c => c.CreatedAt >= filter.DateFrom!.Value)
+            .ApplyWhereIf(filter.DateTo.HasValue, c => c.CreatedAt <= filter.DateTo!.Value);
 
-        if (!string.IsNullOrWhiteSpace(filter.Search))
-        {
-            var q = filter.Search.ToLower();
-            query = query.Where(x => x.Name.ToLower().Contains(q) || (x.Phone != null && x.Phone.Contains(q)));
-        }
-        if (filter.HasDeferredOnly == true)
-            query = query.Where(x => x.TotalDeferred > 0);
-        if (filter.DateFrom.HasValue)
-            query = query.Where(x => x.CreatedAt >= filter.DateFrom.Value);
-        if (filter.DateTo.HasValue)
-            query = query.Where(x => x.CreatedAt <= filter.DateTo.Value);
-
-        var totalCount = await query.CountAsync();
-        var items = await query
-            .OrderByDescending(x => x.CreatedAt)
-            .Skip((filter.PageNumber - 1) * filter.PageSize)
-            .Take(filter.PageSize)
-            .ToListAsync();
-
-        return new PagedResult<ClientDto>
-        {
-            Items = _mapper.Map<List<ClientDto>>(items),
-            TotalCount = totalCount,
-            PageNumber = filter.PageNumber,
-            PageSize = filter.PageSize
-        };
+        return await query.ToPagedResultAsync<Client, ClientDto>(filter, _mapper);
     }
 
     public async Task<IEnumerable<ClientDto>> GetAllAsync()

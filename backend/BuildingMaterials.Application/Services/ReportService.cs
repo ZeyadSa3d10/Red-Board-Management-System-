@@ -1,3 +1,4 @@
+using BuildingMaterials.Application.DTOs;
 using BuildingMaterials.Application.DTOs.Invoice;
 using BuildingMaterials.Application.DTOs.Report;
 using BuildingMaterials.Application.Services.Interfaces;
@@ -5,6 +6,7 @@ using BuildingMaterials.Domain.Entities;
 using BuildingMaterials.Domain.Enums;
 using BuildingMaterials.Domain.Exceptions;
 using BuildingMaterials.Infrastructure.Data;
+using BuildingMaterials.Infrastructure.Extensions;
 using Microsoft.EntityFrameworkCore;
 using AutoMapper;
 
@@ -123,6 +125,32 @@ public class ReportService : IReportService
             MonthlyProfit = netProfit,
             MonthlyData = monthlyRevenue,
             BranchComparison = branchComparison,
+        };
+    }
+
+    public async Task<SalesStatsDto> GetSalesStatsAsync(DateTime? dateFrom, DateTime? dateTo, int? branchId, int? type)
+    {
+        var query = _context.Invoices
+            .Where(x => !x.IsCancelled)
+            .AsQueryable()
+            .ApplyWhereIf(dateFrom.HasValue, x => x.CreatedAt >= dateFrom!.Value)
+            .ApplyWhereIf(dateTo.HasValue, x => x.CreatedAt <= dateTo!.Value.Date.AddDays(1))
+            .ApplyWhereIf(branchId.HasValue, x => x.BranchId == branchId!.Value)
+            .ApplyWhereIf(type.HasValue, x => x.Type == (InvoiceType)type!.Value);
+
+        var salesTypes = new[] { InvoiceType.Sale, InvoiceType.SaleDeferred, InvoiceType.SupplyAndInstallation };
+        var returnTypes = new[] { InvoiceType.ReturnSale, InvoiceType.ReturnDeferred, InvoiceType.ReturnSupplyAndInstallation };
+
+        var totalSales = await query.Where(x => salesTypes.Contains(x.Type)).SumAsync(x => x.TotalAmount);
+        var totalReturns = await query.Where(x => returnTypes.Contains(x.Type)).SumAsync(x => x.TotalAmount);
+        var totalDeferred = await query.Where(x => x.Type == InvoiceType.SaleDeferred).SumAsync(x => x.TotalAmount);
+
+        return new SalesStatsDto
+        {
+            TotalSales = totalSales,
+            TotalReturns = totalReturns,
+            TotalDeferred = totalDeferred,
+            NetSales = totalSales - totalReturns - totalDeferred
         };
     }
 
@@ -692,7 +720,46 @@ public class ReportService : IReportService
     {
         var from = dateFrom?.Date ?? DateTime.Today;
         var to = dateTo?.Date.AddDays(1) ?? DateTime.Today.AddDays(1);
+        var entries = await BuildLedgerEntriesAsync(from, to, branchId);
+        var sorted = entries.OrderByDescending(x => x.Date).ToList();
+        var totalIn = sorted.Sum(x => x.InAmount ?? 0);
+        var totalOut = sorted.Sum(x => x.OutAmount ?? 0);
 
+        return new LedgerResponseDto
+        {
+            TotalIn = totalIn,
+            TotalOut = totalOut,
+            NetAmount = totalIn - totalOut,
+            Entries = sorted
+        };
+    }
+
+    public async Task<PagedResult<LedgerEntryDto>> GetLedgerPagedAsync(LedgerFilterDto filter)
+    {
+        var from = filter.DateFrom?.Date ?? DateTime.Today;
+        var to = filter.DateTo?.Date.AddDays(1) ?? DateTime.Today.AddDays(1);
+        var entries = await BuildLedgerEntriesAsync(from, to, filter.BranchId);
+        var totalCount = entries.Count;
+
+        var paged = entries
+            .OrderByDescending(x => x.Date)
+            .Skip((filter.PageNumber - 1) * filter.PageSize)
+            .Take(filter.PageSize)
+            .ToList();
+
+        return new PagedResult<LedgerEntryDto>
+        {
+            Items = paged,
+            TotalCount = totalCount,
+            PageNumber = filter.PageNumber,
+            PageSize = filter.PageSize,
+            SortBy = filter.SortBy,
+            SortDirection = filter.SortDirection
+        };
+    }
+
+    private async Task<List<LedgerEntryDto>> BuildLedgerEntriesAsync(DateTime from, DateTime to, int? branchId)
+    {
         var entries = new List<LedgerEntryDto>();
 
         // 1. Sale invoices (cash in)
@@ -877,16 +944,6 @@ public class ReportService : IReportService
             });
         }
 
-        var sorted = entries.OrderByDescending(x => x.Date).ToList();
-        var totalIn = sorted.Sum(x => x.InAmount ?? 0);
-        var totalOut = sorted.Sum(x => x.OutAmount ?? 0);
-
-        return new LedgerResponseDto
-        {
-            TotalIn = totalIn,
-            TotalOut = totalOut,
-            NetAmount = totalIn - totalOut,
-            Entries = sorted
-        };
+        return entries;
     }
 }

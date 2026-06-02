@@ -182,16 +182,8 @@ const AccountantReports = () => {
                 <div className="stat-value mono" style={{ color: 'var(--color-accent)' }}>{formatCurrency(pnlData.totalRevenue || 0)}</div>
               </div>
               <div className="stat-card">
-                <div className="stat-label">إجمالي التكاليف</div>
-                <div className="stat-value mono" style={{ color: 'var(--color-danger)' }}>{formatCurrency(pnlData.totalCost || 0)}</div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-label">صافي الربح</div>
-                <div className="stat-value mono" style={{ color: 'var(--color-success)' }}>{formatCurrency((pnlData.totalRevenue || 0) - (pnlData.totalCost || 0))}</div>
-              </div>
-              <div className="stat-card">
                 <div className="stat-label">عدد الفواتير</div>
-                <div className="stat-value">{pnlData.invoiceCount || 0}</div>
+                <div className="stat-value">{pnlData.invoicesCount || 0}</div>
               </div>
             </div>
           ) : (

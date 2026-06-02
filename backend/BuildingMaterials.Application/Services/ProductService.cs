@@ -5,7 +5,8 @@ using BuildingMaterials.Application.Services.Interfaces;
 using BuildingMaterials.Domain.Entities;
 using BuildingMaterials.Domain.Exceptions;
 using BuildingMaterials.Infrastructure.Data;
-using System.Linq;
+using BuildingMaterials.Application.Extensions;
+using BuildingMaterials.Infrastructure.Extensions;
 using Microsoft.EntityFrameworkCore;
 
 namespace BuildingMaterials.Application.Services;
@@ -23,32 +24,12 @@ public class ProductService : IProductService
 
     public async Task<PagedResult<ProductDto>> GetFilteredAsync(ProductFilterDto filter)
     {
-        var query = _context.Products.Include(x => x.Category).AsQueryable();
+        var query = _context.Products.Include(x => x.Category).AsQueryable()
+            .ApplySearch(filter.Search, p => p.Name, p => p.Barcode)
+            .ApplyWhereIf(filter.CategoryId.HasValue, p => p.CategoryId == filter.CategoryId!.Value)
+            .ApplyWhereIf(filter.BranchId.HasValue, p => p.BranchInventories.Any(i => i.BranchId == filter.BranchId!.Value));
 
-        if (!string.IsNullOrWhiteSpace(filter.Search))
-        {
-            var q = filter.Search.ToLower();
-            query = query.Where(x => x.Name.ToLower().Contains(q) || (x.Barcode != null && x.Barcode.Contains(q)));
-        }
-        if (filter.CategoryId.HasValue)
-            query = query.Where(x => x.CategoryId == filter.CategoryId.Value);
-        if (filter.BranchId.HasValue)
-            query = query.Where(x => x.BranchInventories.Any(i => i.BranchId == filter.BranchId.Value));
-
-        var totalCount = await query.CountAsync();
-        var items = await query
-            .OrderByDescending(x => x.CreatedAt)
-            .Skip((filter.PageNumber - 1) * filter.PageSize)
-            .Take(filter.PageSize)
-            .ToListAsync();
-
-        return new PagedResult<ProductDto>
-        {
-            Items = _mapper.Map<List<ProductDto>>(items),
-            TotalCount = totalCount,
-            PageNumber = filter.PageNumber,
-            PageSize = filter.PageSize
-        };
+        return await query.ToPagedResultAsync<Product, ProductDto>(filter, _mapper);
     }
 
     public async Task<IEnumerable<ProductDto>> GetAllAsync()

@@ -59,10 +59,12 @@ public class InvoiceController : ControllerBase
     public async Task<IActionResult> GetInvoices(
         [FromQuery] int? branchId,
         [FromQuery] int? type,
+        [FromQuery] string? types,
         [FromQuery] DateTime? dateFrom,
         [FromQuery] DateTime? dateTo,
         [FromQuery] int? clientId,
         [FromQuery] int? relatedInvoiceId,
+        [FromQuery] string? search,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20)
     {
@@ -72,12 +74,14 @@ public class InvoiceController : ControllerBase
         {
             BranchId = branchId,
             Type = type,
+            Types = types,
             DateFrom = dateFrom,
             DateTo = dateTo,
-                ClientId = clientId,
-                RelatedInvoiceId = relatedInvoiceId,
-                PageNumber = page,
-                PageSize = Math.Min(pageSize, 100)
+            ClientId = clientId,
+            RelatedInvoiceId = relatedInvoiceId,
+            Search = search,
+            PageNumber = page,
+            PageSize = Math.Min(pageSize, 100)
         };
         if (userRole == "Staff" && !filter.BranchId.HasValue)
             filter.BranchId = int.Parse(userBranchId!);
