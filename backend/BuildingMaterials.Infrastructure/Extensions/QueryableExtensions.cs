@@ -20,13 +20,15 @@ public static class QueryableExtensions
 
         foreach (var selector in fieldSelectors)
         {
-            var propertyAccess = selector.Body;
-            if (propertyAccess.Type != typeof(string))
+            // Rebind the selector's body onto our shared `param`
+            var reboundBody = ParameterReplacer.Replace(selector.Body, selector.Parameters[0], param);
+
+            if (reboundBody.Type != typeof(string))
                 continue;
 
-            var toLower = Expression.Call(propertyAccess, toLowerMethod);
-            var contains = Expression.Call(toLower, containsMethod, Expression.Constant(searchLower));
-            var notNull = Expression.NotEqual(propertyAccess, Expression.Constant(null, typeof(string)));
+            var notNull = Expression.NotEqual(reboundBody, Expression.Constant(null, typeof(string)));
+            var toLower = Expression.Call(reboundBody, toLowerMethod!);
+            var contains = Expression.Call(toLower, containsMethod!, Expression.Constant(searchLower));
             var safeExpr = Expression.AndAlso(notNull, contains);
 
             orExpression = orExpression == null ? safeExpr : Expression.OrElse(orExpression, safeExpr);
@@ -75,5 +77,24 @@ public static class QueryableExtensions
         int pageSize)
     {
         return query.Skip((pageNumber - 1) * pageSize).Take(pageSize);
+    }
+
+    // Helper: replaces one ParameterExpression with another inside an expression tree
+    private sealed class ParameterReplacer : ExpressionVisitor
+    {
+        private readonly ParameterExpression _from;
+        private readonly Expression _to;
+
+        private ParameterReplacer(ParameterExpression from, Expression to)
+        {
+            _from = from;
+            _to = to;
+        }
+
+        public static Expression Replace(Expression body, ParameterExpression from, Expression to)
+            => new ParameterReplacer(from, to).Visit(body);
+
+        protected override Expression VisitParameter(ParameterExpression node)
+            => node == _from ? _to : base.VisitParameter(node);
     }
 }

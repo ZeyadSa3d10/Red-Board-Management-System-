@@ -136,8 +136,10 @@ public class PurchaseService : IPurchaseService
             .Include(x => x.Items).ThenInclude(x => x.Product)
             .Include(x => x.Payments)
             .AsQueryable()
-            .ApplySearch(filter.Search, p => p.InvoiceNumber)
+            .ApplySearch(filter.Search, p => p.InvoiceNumber, p => p.Supplier.Name)
             .ApplyWhereIf(filter.SupplierId.HasValue, p => p.SupplierId == filter.SupplierId!.Value)
+            .ApplyWhereIf(filter.BranchId.HasValue, p => p.BranchId == filter.BranchId!.Value)
+            .ApplyWhereIf(filter.EmployeeId.HasValue, p => p.AddedById == filter.EmployeeId!.Value)
             .ApplyWhereIf(filter.DateFrom.HasValue, p => p.InvoiceDate >= filter.DateFrom!.Value)
             .ApplyWhereIf(filter.DateTo.HasValue, p => p.InvoiceDate <= filter.DateTo!.Value);
 

@@ -175,6 +175,7 @@ export const api = {
     if (filters.clientId) params.clientId = filters.clientId;
     if (filters.relatedInvoiceId) params.relatedInvoiceId = filters.relatedInvoiceId;
     if (filters.search) params.search = filters.search;
+    if (filters.employeeId) params.employeeId = filters.employeeId;
     if (filters.page) params.page = filters.page;
     if (filters.pageSize) params.pageSize = filters.pageSize;
     const data = await http.get('/Invoice', params);
@@ -653,6 +654,8 @@ export const api = {
     if (filter.dateTo) params.dateTo = filter.dateTo;
     if (filter.page) params.pageNumber = filter.page;
     if (filter.pageSize) params.pageSize = filter.pageSize;
+    if (filter.branchId) params.branchId = filter.branchId;
+    if (filter.employeeId) params.employeeId = filter.employeeId;
     const data = await http.get('/Purchase/filtered', params);
     return data?.items ? data : { items: (data || []).map(mapPurchaseInvoice), totalCount: 0, pageNumber: 1, pageSize: 20 };
   },

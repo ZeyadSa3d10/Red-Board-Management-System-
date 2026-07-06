@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { formatCurrency, formatInvoiceType, formatDateTime } from '../../utils/formatters';
-import { BsPrinter } from 'react-icons/bs';
+import { BsPrinter, BsFileEarmarkPdf } from 'react-icons/bs';
 
 const escapeHtml = (str) => {
   if (str == null) return '';
@@ -73,9 +73,14 @@ const InvoicePrint = ({ invoice }) => {
   };
 
   return (
-    <button className="btn-custom btn-custom-outline btn-custom-sm" onClick={handlePrint}>
-      <BsPrinter size={16} /> طباعة
-    </button>
+    <div style={{ display: 'flex', gap: '8px' }}>
+      <button className="btn-custom btn-custom-outline btn-custom-sm" onClick={handlePrint} title="طباعة">
+        <BsPrinter size={16} /> 
+      </button>
+      <button className="btn-custom btn-custom-outline btn-custom-sm" onClick={handlePrint} title="تصدير PDF (اختر Save as PDF من نافذة الطباعة)">
+        <BsFileEarmarkPdf size={16} color="#d9534f" />
+      </button>
+    </div>
   );
 };
 

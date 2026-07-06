@@ -405,7 +405,7 @@ public class InvoiceService : IInvoiceService
             .Include(x => x.CreatedBy)
             .Include(x => x.DeferredInvoice)
             .Include(x => x.RelatedInvoice)
-                .ThenInclude(x => x.DeferredInvoice)
+                .ThenInclude(x => x!.DeferredInvoice)
             .Where(x => !x.IsCancelled)
             .AsQueryable()
             .ApplyWhereIf(filter.BranchId.HasValue, x => x.BranchId == filter.BranchId!.Value)
@@ -413,7 +413,8 @@ public class InvoiceService : IInvoiceService
             .ApplyWhereIf(filter.DateFrom.HasValue, x => x.CreatedAt >= filter.DateFrom!.Value)
             .ApplyWhereIf(filter.DateTo.HasValue, x => x.CreatedAt <= filter.DateTo!.Value)
             .ApplyWhereIf(filter.ClientId.HasValue, x => x.ClientId == filter.ClientId!.Value)
-            .ApplySearch(filter.Search, x => x.InvoiceNumber, x => x.WalkInClientName, x => x.ProjectName);
+            .ApplyWhereIf(filter.EmployeeId.HasValue, x => x.CreatedByEmployeeId == filter.EmployeeId!.Value)
+            .ApplySearch(filter.Search, x => x.InvoiceNumber, x => x.WalkInClientName, x => x.ProjectName, x => x.Client.Name);
 
         if (!string.IsNullOrEmpty(filter.Types))
         {

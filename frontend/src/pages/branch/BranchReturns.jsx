@@ -173,7 +173,7 @@ const BranchReturns = () => {
     { key: 'createdAt', header: 'التاريخ', render: (v) => formatDateTime(v) },
     { key: 'type', header: 'النوع', render: (v) => <span className={`badge-custom ${getInvoiceBadgeColor(v)}`}>{formatInvoiceType(v)}</span> },
     { key: 'clientName', header: 'العميل', render: (v) => v || 'نقدي' },
-    { key: 'createdBy', header: 'صادر باسم', render: (v) => <span style={{ fontSize: '0.85rem' }}>{v || '-'}</span> },
+    { key: 'createdBy', header: 'اسم الموظف', render: (v) => <span style={{ fontSize: '0.85rem' }}>{v || '-'}</span> },
     { key: 'totalAmount', header: 'الإجمالي', render: (v) => <span className="mono" style={{ fontWeight: 600, color: 'var(--color-danger)' }}>{formatCurrency(v)}</span> },
     { key: 'paymentMethod', header: 'طريقة الدفع', render: (v) => v ? formatPaymentMethod(v) : '-' },
     { key: 'actions', header: 'الإجراءات', sortable: false, render: (_, row) => <InvoicePrint invoice={row} /> },
