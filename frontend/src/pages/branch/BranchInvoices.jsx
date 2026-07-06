@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useNotifications } from '../../context/NotificationContext';
 import api from '../../api/realApi';
 import SalesInvoiceForm from '../../components/invoices/SalesInvoiceForm';
 import InvoiceCard from '../../components/invoices/InvoiceCard';
@@ -17,6 +18,7 @@ import { BsPlus } from 'react-icons/bs';
 
 const BranchInvoices = () => {
   const { user } = useAuth();
+  const { addNotification } = useNotifications();
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
@@ -25,30 +27,65 @@ const BranchInvoices = () => {
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [selectedInvoiceFull, setSelectedInvoiceFull] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [employees, setEmployees] = useState([]);
 
   const { filters, setFilter, resetFilters, activeCount } = useFilters({
     search: '',
+    employeeId: '',
     type: '',
     dateFrom: '',
     dateTo: '',
   }, { debounceMs: 400 });
 
+  const isOwnerOrAccountant = user?.role === 'owner' || user?.role === 'accountant';
+
+  useEffect(() => {
+    if (isOwnerOrAccountant) {
+      api.getEmployees().then(res => setEmployees(res || [])).catch(console.error);
+    } else if (user?.branchId) {
+      api.getEmployeesByBranch(user.branchId).then(res => setEmployees(res?.items || res || [])).catch(console.error);
+    }
+  }, [user, isOwnerOrAccountant]);
+
   const loadInvoices = useCallback(async (filtersToApply) => {
     setLoading(true);
     try {
-      const baseParams = user?.role === 'owner' || user?.role === 'accountant'
-        ? {} : { branchId: user?.branchId };
-      const apiParams = {
+      const baseParams = isOwnerOrAccountant ? {} : { branchId: user?.branchId };
+
+      const isPurchaseOnly = filtersToApply.type === 'purchase';
+      const isSalesOnly = filtersToApply.type && filtersToApply.type !== 'purchase';
+
+      const salesParams = {
         ...baseParams,
         page: page,
         pageSize: 10,
-        ...(filtersToApply.type ? { type: filtersToApply.type } : {}),
+        ...(filtersToApply.search ? { search: filtersToApply.search } : {}),
+        ...(filtersToApply.employeeId ? { employeeId: filtersToApply.employeeId } : {}),
+        ...(filtersToApply.type && !isPurchaseOnly ? { type: filtersToApply.type } : {}),
         ...(filtersToApply.dateFrom ? { dateFrom: filtersToApply.dateFrom } : {}),
         ...(filtersToApply.dateTo ? { dateTo: filtersToApply.dateTo } : {}),
       };
+
+      const purchaseParams = {
+        ...baseParams,
+        page: page,
+        pageSize: 10,
+        ...(filtersToApply.search ? { search: filtersToApply.search } : {}),
+        ...(filtersToApply.employeeId ? { employeeId: filtersToApply.employeeId } : {}),
+        ...(filtersToApply.dateFrom ? { dateFrom: filtersToApply.dateFrom } : {}),
+        ...(filtersToApply.dateTo ? { dateTo: filtersToApply.dateTo } : {}),
+      };
+
+      // فواتير المورد بتظهر بس لـ owner و accountant
       const [salesData, purchaseData] = await Promise.all([
-        api.getInvoices(apiParams).catch(() => []),
-        api.getPurchaseInvoicesFiltered(apiParams).catch(() => ({ items: [], totalCount: 0 })),
+        isSalesOnly
+          ? api.getInvoices(salesParams).catch(() => [])
+          : isPurchaseOnly
+            ? Promise.resolve([])
+            : api.getInvoices(salesParams).catch(() => []),
+        isOwnerOrAccountant && !isSalesOnly
+          ? api.getPurchaseInvoicesFiltered(purchaseParams).catch(() => ({ items: [], totalCount: 0 }))
+          : Promise.resolve({ items: [], totalCount: 0 }),
       ]);
 
       const salesResult = Array.isArray(salesData) ? salesData : [];
@@ -113,15 +150,35 @@ const BranchInvoices = () => {
   };
 
   const columns = [
-    { key: 'invoiceNumber', header: 'رقم الفاتورة', render: (v) => <span style={{ fontWeight: 500 }}>{v}</span> },
+    {
+      key: 'invoiceNumber', header: 'رقم الفاتورة', render: (v) => (
+        <span style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {v}
+          <button
+            className="btn-custom-outline"
+            style={{ padding: '2px 6px', border: 'none', background: 'transparent', cursor: 'pointer' }}
+            onClick={(e) => {
+              e.stopPropagation();
+              navigator.clipboard.writeText(v);
+              addNotification('تم نسخ الفاتورة', 'success');
+            }}
+            title="نسخ رقم الفاتورة"
+          >
+            📋
+          </button>
+        </span>
+      )
+    },
     { key: 'createdAt', header: 'التاريخ', render: (v) => formatDateTime(v) },
     { key: 'type', header: 'النوع', render: (v) => <span className={`badge-custom ${getInvoiceBadgeColor(v)}`}>{formatInvoiceType(v)}</span> },
     { key: 'branchName', header: 'الفرع', render: (v) => <span style={{ fontSize: '0.85rem' }}>{v || '-'}</span> },
-    { key: 'clientName', header: 'العميل', render: (v, row) => {
-      if (row.type === 'supply_installation' || row.type === 'return_supply_installation') return row.projectName || '—';
-      return v || 'نقدي';
-    }},
-    { key: 'createdBy', header: 'صادر باسم', render: (v) => <span style={{ fontSize: '0.85rem' }}>{v || '-'}</span> },
+    {
+      key: 'clientName', header: 'العميل', render: (v, row) => {
+        if (row.type === 'supply_installation' || row.type === 'return_supply_installation') return row.projectName || '—';
+        return v || 'نقدي';
+      }
+    },
+    { key: 'createdBy', header: 'اسم الموظف', render: (v) => <span style={{ fontSize: '0.85rem' }}>{v || '-'}</span> },
     { key: 'totalAmount', header: 'الإجمالي', render: (v) => <span className="mono" style={{ fontWeight: 600 }}>{formatCurrency(v)}</span> },
     { key: 'paymentMethod', header: 'طريقة الدفع', render: (v) => v ? formatPaymentMethod(v) : '-' },
     { key: 'actions', header: 'الإجراءات', sortable: false, render: (_, row) => <InvoicePrint invoice={row} /> },
@@ -143,6 +200,13 @@ const BranchInvoices = () => {
           <FilterBar variant="panel" onReset={handleReset} activeCount={activeCount} loading={loading} onApply={handleApply}>
             <FilterSearch value={filters.search} onChange={v => setFilter('search', v)} placeholder="بحث برقم الفاتورة أو العميل..." />
             <FilterGroup>
+              <select className="form-control-custom" style={{ maxWidth: 200 }} value={filters.employeeId}
+                onChange={e => setFilter('employeeId', e.target.value)}>
+                <option value="">كل الموظفين</option>
+                {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.fullName}</option>)}
+              </select>
+            </FilterGroup>
+            <FilterGroup>
               <select className="form-control-custom" style={{ maxWidth: 200 }} value={filters.type}
                 onChange={e => setFilter('type', e.target.value)}>
                 <option value="">كل الأنواع</option>
@@ -153,7 +217,7 @@ const BranchInvoices = () => {
                 <option value="supply_installation">توريد وتركيب</option>
                 <option value="return_supply_installation">مرتجع توريد وتركيب</option>
                 <option value="transfer">تحويل</option>
-                <option value="purchase">فاتورة مورد</option>
+                {isOwnerOrAccountant && <option value="purchase">فاتورة مورد</option>}
               </select>
             </FilterGroup>
             <DateRangePicker

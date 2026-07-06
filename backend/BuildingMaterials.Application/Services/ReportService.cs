@@ -892,7 +892,7 @@ public class ReportService : IReportService
             {
                 Date = p.PaymentDate,
                 Description = $"دفعة لمورد {p.SupplierName}",
-                BranchName = p.BranchName,
+                BranchName = p.BranchName ?? "",
                 Type = "دفعات موردين",
                 PaymentMethod = p.PaymentMethod.ToString(),
                 OutAmount = p.Amount,
@@ -938,7 +938,7 @@ public class ReportService : IReportService
             {
                 Date = s.PaidDate,
                 Description = $"راتب: {s.EmployeeName}",
-                BranchName = s.BranchName,
+                BranchName = s.BranchName ?? "",
                 Type = "رواتب",
                 OutAmount = s.Amount
             });

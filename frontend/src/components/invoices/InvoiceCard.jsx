@@ -23,8 +23,8 @@ const InvoiceCard = ({ invoice, onPrint }) => {
         <div style={{ marginBottom: 12, fontSize: '0.9rem' }}>
           <span style={{ color: 'var(--color-text-secondary)' }}>
             {invoice.paymentMethod === 'vodafone_cash' ? 'رقم الموبايل المحول إليه:' :
-             invoice.paymentMethod === 'bank_transfer' ? 'اسم المحول إليه:' :
-             'رقم الشيك:'}
+              invoice.paymentMethod === 'bank_transfer' ? 'اسم المحول إليه:' :
+                'رقم الشيك:'}
           </span>
           <span style={{ fontWeight: 600, marginRight: 4 }}>{invoice.paymentReference}</span>
         </div>
@@ -45,7 +45,7 @@ const InvoiceCard = ({ invoice, onPrint }) => {
           )}
         </div>
         <div>
-          <span style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>صادر باسم:</span>
+          <span style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}> اسم الموظف:</span>
           <div style={{ fontWeight: 500 }}>{invoice.createdBy || invoice.addedByName || invoice.addedBy || '-'}</div>
         </div>
         <div>
